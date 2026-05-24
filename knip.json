@@ -1,0 +1,31 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "app/**/{page,layout,loading,error,route}.{ts,tsx}",
+    "app/providers.tsx",
+    "proxy.ts",
+    "next.config.ts",
+    "postcss.config.mjs",
+    "tailwind.config.ts"
+  ],
+  "project": [
+    "app/**/*.{ts,tsx}",
+    "components/**/*.{ts,tsx}",
+    "hooks/**/*.ts",
+    "lib/**/*.ts",
+    "services/**/*.ts",
+    "types/**/*.ts"
+  ],
+  "ignore": ["lib/generated/**", "components/ui/**", "prisma/**", "scripts/**"],
+  "ignoreDependencies": [
+    "shadcn",
+    "tw-animate-css",
+    "@prisma/client",
+    "eslint-config-next",
+    "tree-node-cli",
+    "next-themes",
+    "react-day-picker",
+    "sonner"
+  ],
+  "ignoreExportsUsedInFile": true
+}

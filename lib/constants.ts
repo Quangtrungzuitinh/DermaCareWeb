@@ -1,0 +1,13 @@
+export const ONE_DAY_MS = 86400000
+
+export const DASHBOARD_WEEK_DAYS = 7
+export const DASHBOARD_PREVIEW_ITEMS = 4
+export const TOP_SERVICES_LIMIT = 6
+export const DATE_STRIP_OFFSET_DAYS = 3
+export const PATIENT_SEARCH_INITIAL_LIMIT = 6
+export const PATIENT_SEARCH_RESULT_LIMIT = 8
+
+export const DEFAULT_SLOT_DURATION_MIN = 30
+export const BOOKING_LEAD_TIME_MIN = 120
+export const APPOINTMENT_DEPOSIT_AMOUNT = 100000
+export const SHORT_ID_LENGTH = 8

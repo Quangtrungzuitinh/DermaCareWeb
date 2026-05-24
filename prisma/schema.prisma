@@ -1,0 +1,718 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["driverAdapters", "partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Profile {
+  id                      String                   @id @default(cuid())
+  supabaseUserId          String                   @unique @map("supabase_user_id")
+  email                   String?
+  phone                   String?
+  fullName                String
+  avatarUrl               String?
+  role                    Role                     @default(PATIENT)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  birthYear               Int?
+  province                String?
+  district                String?
+  consentDataStorage      Boolean                  @default(false)
+  consentGivenAt          DateTime?
+  appointmentsAsPatient   Appointment[]            @relation("PatientAppointments")
+  audit_logs              audit_logs[]
+  conditions              Condition[]              @relation("PatientConditions")
+  consents                Consent[]                @relation("PatientConsents")
+  doctorProfile           DoctorProfile?
+  encounters              Encounter[]              @relation("PatientEncounters")
+  followUpNotesAuthored   FollowUpNote[]           @relation("AuthoredFollowUpNotes")
+  followUpNotesReceived   FollowUpNote[]           @relation("PatientFollowUpNotes")
+  medicalRecordAmendments MedicalRecordAmendment[] @relation("MedicalRecordAmendmentsAuthored")
+  medicalRecords          MedicalRecord[]          @relation("PatientMedicalRecords")
+  notificationsReceived   Notification[]           @relation("NotificationRecipient")
+  notificationsSent       Notification[]           @relation("NotificationSender")
+  paymentsConfirmed       Payment[]                @relation("PaymentsConfirmed")
+  paymentsMade            Payment[]                @relation("PaymentsMade")
+  prescriptionsAsPatient  Prescription[]           @relation("PatientPrescriptions")
+  skinAnalysisConfirmed   SkinAnalysisResult[]     @relation("ConfirmedAnalyses")
+  skinAnalysisResults     SkinAnalysisResult[]     @relation("PatientSkinAnalysisResults")
+  skinImages              SkinImage[]              @relation("PatientSkinImages")
+  skinImagesDeleted       SkinImage[]              @relation("DeletedSkinImages")
+  skinImagesUploaded      SkinImage[]              @relation("UploadedSkinImages")
+  treatmentPlansAsPatient TreatmentPlan[]          @relation("PatientTreatmentPlans")
+  waitlistEntries         WaitlistEntry[]          @relation("PatientWaitlist")
+
+  @@map("profiles")
+}
+
+model DoctorProfile {
+  id              String               @id @default(cuid())
+  profileId       String?              @unique
+  licenseNumber   String               @unique
+  seniorityLevel  DoctorLevel
+  specialty       String?
+  isActive        Boolean              @default(false)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  approvalStatus  ApprovalStatus       @default(PENDING)
+  appointments    Appointment[]        @relation("DoctorAppointments")
+  blockedSlots    DoctorBlockedSlot[]
+  encounters      Encounter[]          @relation("DoctorEncounters")
+  medicalRecords  MedicalRecord[]      @relation("DoctorMedicalRecords")
+  prescriptions   Prescription[]       @relation("DoctorPrescriptions")
+  profile         Profile?             @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  scheduleRules   DoctorScheduleRule[]
+  treatmentPlans  TreatmentPlan[]      @relation("DoctorTreatmentPlans")
+  waitlistEntries WaitlistEntry[]      @relation("DoctorWaitlist")
+
+  @@map("doctor_profiles")
+}
+
+model DoctorScheduleRule {
+  id           String        @id @default(cuid())
+  doctorId     String
+  dayOfWeek    DayOfWeek
+  maxPatients  Int
+  slotDuration Int
+  startMinute  Int
+  endMinute    Int
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  doctor       DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, dayOfWeek, startMinute])
+  @@index([doctorId, dayOfWeek, isActive])
+  @@map("doctor_schedule_rules")
+}
+
+model DoctorBlockedSlot {
+  id          String        @id @default(cuid())
+  doctorId    String
+  blockedDate DateTime
+  startMinute Int
+  endMinute   Int
+  reason      String?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  doctor      DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, blockedDate])
+  @@index([doctorId, blockedDate, startMinute, endMinute])
+  @@map("doctor_blocked_slots")
+}
+
+model Service {
+  id              String          @id @default(cuid())
+  name            String
+  price           Int
+  description     String?
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  durationMinutes Int             @default(30)
+  treatments      Treatment[]
+  waitlistEntries WaitlistEntry[] @relation("ServiceWaitlist")
+
+  @@index([isActive])
+  @@map("services")
+}
+
+model ClinicFaq {
+  id        String   @id @default(cuid())
+  question  String   @unique
+  answer    String
+  keywords  String[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([isActive])
+  @@map("clinic_faq")
+}
+
+model KnowledgeBase {
+  id        String                 @id @default(cuid())
+  category  String
+  title     String                 @unique
+  content   String
+  metadata  Json?
+  isActive  Boolean                @default(true)
+  createdAt DateTime               @default(now())
+  embedding Unsupported("vector")?
+
+  @@index([category, isActive])
+  @@index([isActive])
+  @@index([embedding], where: raw("(embedding IS NOT NULL)"))
+  @@map("knowledge_base")
+}
+
+model ChatSession {
+  id        String        @id @default(cuid())
+  userId    String?
+  role      String        @default("PATIENT")
+  context   Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+
+  @@index([userId])
+  @@map("chat_session")
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  role      String
+  content   String
+  toolCalls Json?
+  createdAt DateTime    @default(now())
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("chat_message")
+}
+
+model Appointment {
+  id                   String            @id @default(cuid())
+  status               AppointmentStatus @default(PENDING_PAYMENT)
+  appointmentDate      DateTime
+  doctorId             String
+  patientId            String?
+  guestName            String?
+  guestPhone           String?
+  guestEmail           String?
+  baseFee              Int               @default(100000)
+  notes                String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  visitReason          String?
+  birthYear            Int?
+  province             String?
+  district             String?
+  payAtClinic          Boolean           @default(false)
+  aiPredictedCondition String?
+  aiConfidenceScore    Float?
+  doctor               DoctorProfile     @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  encounter            Encounter?
+  patient              Profile?          @relation("PatientAppointments", fields: [patientId], references: [id], onDelete: SetNull)
+  medicalRecord        MedicalRecord?
+  notifications        Notification[]
+  payment              Payment?
+
+  @@unique([doctorId, appointmentDate])
+  @@index([appointmentDate, doctorId])
+  @@index([doctorId, status])
+  @@index([patientId])
+  @@index([status])
+  @@map("appointments")
+}
+
+model Notification {
+  id            String           @id @default(cuid())
+  recipientId   String
+  recipientRole Role
+  senderId      String?
+  appointmentId String?
+  type          NotificationType @default(SYSTEM)
+  title         String
+  body          String
+  metadata      Json?
+  isRead        Boolean          @default(false)
+  readAt        DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime         @default(now())
+  appointment   Appointment?     @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  recipient     Profile          @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender        Profile?         @relation("NotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId, isRead, createdAt])
+  @@index([recipientRole, createdAt])
+  @@index([appointmentId])
+  @@index([senderId])
+  @@index([revokedAt])
+  @@map("notifications")
+}
+
+model Payment {
+  id                 String             @id @default(cuid())
+  appointmentId      String             @unique
+  amount             Int
+  status             PaymentStatus      @default(CONFIRMED)
+  confirmationSource ConfirmationSource @default(WEBHOOK)
+  payerId            String?
+  confirmedById      String?
+  confirmedAt        DateTime?
+  createdAt          DateTime           @default(now())
+  appointment        Appointment        @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  confirmedBy        Profile?           @relation("PaymentsConfirmed", fields: [confirmedById], references: [id], onDelete: SetNull)
+  payer              Profile?           @relation("PaymentsMade", fields: [payerId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([confirmedById])
+  @@index([payerId])
+  @@map("payments")
+}
+
+model MedicalRecord {
+  id                 String                   @id @default(cuid())
+  appointmentId      String                   @unique
+  patientId          String?
+  doctorId           String?
+  encounterId        String?                  @unique
+  guestSnapshotName  String?
+  guestSnapshotPhone String?
+  chiefComplaint     String?
+  symptoms           String?
+  diagnosis          String?
+  notes              String?
+  doctorNote         String?
+  followUpDate       DateTime?
+  status             MedicalRecordStatus      @default(DRAFT)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  planDescription    String?
+  targetSessions     Int?
+  completedSessions  Int                      @default(0)
+  amendments         MedicalRecordAmendment[]
+  appointment        Appointment              @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  doctor             DoctorProfile?           @relation("DoctorMedicalRecords", fields: [doctorId], references: [id], onDelete: SetNull)
+  encounter          Encounter?               @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  patient            Profile?                 @relation("PatientMedicalRecords", fields: [patientId], references: [id], onDelete: SetNull)
+  conditions         Condition[]
+  prescriptions      Prescription[]
+  skinImages         SkinImage[]
+  treatmentPlans     TreatmentPlan[]
+  treatments         Treatment[]
+
+  @@index([doctorId])
+  @@index([encounterId])
+  @@index([patientId])
+  @@index([status])
+  @@map("medical_records")
+}
+
+model Encounter {
+  id            String                @id @default(cuid())
+  appointmentId String                @unique
+  patientId     String?
+  doctorId      String
+  status        EncounterStatus       @default(IN_PROGRESS)
+  checkedInAt   DateTime              @default(now())
+  startedAt     DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  appointment   Appointment           @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  doctor        DoctorProfile         @relation("DoctorEncounters", fields: [doctorId], references: [id], onDelete: Restrict)
+  medicalRecord MedicalRecord?
+  patient       Profile?              @relation("PatientEncounters", fields: [patientId], references: [id], onDelete: SetNull)
+  conditions    Condition[]
+  followUpNotes FollowUpNote[]
+  observations  ClinicalObservation[]
+  prescriptions Prescription[]
+  skinAnalyses  SkinAnalysisResult[]
+  skinImages    SkinImage[]
+
+  @@index([doctorId, status])
+  @@index([patientId])
+  @@index([status])
+  @@map("encounters")
+}
+
+model MedicalRecordAmendment {
+  id              String        @id @default(cuid())
+  medicalRecordId String
+  amendedById     String
+  reason          String
+  fieldChanged    String
+  oldValue        String?
+  newValue        String?
+  createdAt       DateTime      @default(now())
+  amendedBy       Profile       @relation("MedicalRecordAmendmentsAuthored", fields: [amendedById], references: [id], onDelete: Restrict)
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+
+  @@index([amendedById])
+  @@index([medicalRecordId, createdAt])
+  @@map("medical_record_amendments")
+}
+
+model Prescription {
+  id              String             @id @default(cuid())
+  medicalRecordId String
+  patientId       String?
+  doctorId        String
+  encounterId     String?
+  note            String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  doctor          DoctorProfile      @relation("DoctorPrescriptions", fields: [doctorId], references: [id], onDelete: Restrict)
+  encounter       Encounter?         @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  items           PrescriptionItem[]
+  medicalRecord   MedicalRecord      @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+  patient         Profile?           @relation("PatientPrescriptions", fields: [patientId], references: [id], onDelete: SetNull)
+
+  @@index([doctorId])
+  @@index([encounterId])
+  @@index([medicalRecordId])
+  @@index([patientId])
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id             String       @id @default(cuid())
+  prescriptionId String
+  medicationName String
+  dosage         String
+  frequency      String
+  duration       String
+  instruction    String?
+  createdAt      DateTime     @default(now())
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([prescriptionId])
+  @@map("prescription_items")
+}
+
+model SkinImage {
+  id               String              @id @default(cuid())
+  patientId        String
+  encounterId      String?
+  medicalRecordId  String?
+  driveFileId      String
+  fileName         String
+  mimeType         String
+  fileSizeBytes    Int?
+  thumbnailUrl     String?
+  bodyArea         String?
+  capturedAt       DateTime            @default(now())
+  uploadedBy       String
+  note             String?
+  aiAnalysisId     String?
+  deletedAt        DateTime?
+  deletedBy        String?
+  deletedByProfile Profile?            @relation("DeletedSkinImages", fields: [deletedBy], references: [id], onDelete: SetNull)
+  encounter        Encounter?          @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  medicalRecord    MedicalRecord?      @relation(fields: [medicalRecordId], references: [id], onDelete: SetNull)
+  patient          Profile             @relation("PatientSkinImages", fields: [patientId], references: [id], onDelete: Cascade)
+  uploader         Profile             @relation("UploadedSkinImages", fields: [uploadedBy], references: [id], onDelete: Restrict)
+  analysisResult   SkinAnalysisResult?
+
+  @@index([encounterId])
+  @@index([medicalRecordId])
+  @@index([patientId, capturedAt])
+  @@index([uploadedBy])
+  @@map("skin_images")
+}
+
+model TreatmentPlan {
+  id              String              @id @default(cuid())
+  patientId       String
+  doctorId        String
+  medicalRecordId String?
+  diagnosis       String?
+  goal            String?
+  startDate       DateTime
+  expectedEndDate DateTime?
+  status          TreatmentPlanStatus @default(ACTIVE)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  doctor          DoctorProfile       @relation("DoctorTreatmentPlans", fields: [doctorId], references: [id], onDelete: Restrict)
+  followUpNotes   FollowUpNote[]
+  medicalRecord   MedicalRecord?      @relation(fields: [medicalRecordId], references: [id], onDelete: SetNull)
+  patient         Profile             @relation("PatientTreatmentPlans", fields: [patientId], references: [id], onDelete: Cascade)
+  steps           TreatmentPlanStep[]
+
+  @@index([doctorId])
+  @@index([medicalRecordId])
+  @@index([patientId, status])
+  @@map("treatment_plans")
+}
+
+model TreatmentPlanStep {
+  id               String        @id @default(cuid())
+  planId           String
+  weekNumber       Int
+  instruction      String
+  medication       String?
+  followUpRequired Boolean       @default(false)
+  isDone           Boolean       @default(false)
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  plan             TreatmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@map("treatment_plan_steps")
+}
+
+model ClinicalObservation {
+  id          String    @id @default(cuid())
+  encounterId String
+  type        String
+  value       String
+  unit        String?
+  note        String?
+  recordedAt  DateTime  @default(now())
+  encounter   Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+
+  @@index([encounterId, type])
+  @@map("clinical_observations")
+}
+
+model Condition {
+  id              String          @id @default(cuid())
+  patientId       String
+  encounterId     String?
+  medicalRecordId String?
+  name            String
+  icdCode         String?
+  severity        String?
+  status          ConditionStatus @default(ACTIVE)
+  onsetDate       DateTime?
+  resolvedDate    DateTime?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  encounter       Encounter?      @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  medicalRecord   MedicalRecord?  @relation(fields: [medicalRecordId], references: [id], onDelete: SetNull)
+  patient         Profile         @relation("PatientConditions", fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([encounterId])
+  @@index([medicalRecordId])
+  @@index([patientId, status])
+  @@map("conditions")
+}
+
+model FollowUpNote {
+  id              String         @id @default(cuid())
+  patientId       String
+  encounterId     String?
+  treatmentPlanId String?
+  createdById     String
+  note            String
+  nextAction      String?
+  scheduledDate   DateTime?
+  isDone          Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  createdBy       Profile        @relation("AuthoredFollowUpNotes", fields: [createdById], references: [id], onDelete: Restrict)
+  encounter       Encounter?     @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  patient         Profile        @relation("PatientFollowUpNotes", fields: [patientId], references: [id], onDelete: Cascade)
+  treatmentPlan   TreatmentPlan? @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
+
+  @@index([createdById])
+  @@index([encounterId])
+  @@index([patientId])
+  @@index([scheduledDate, isDone])
+  @@index([treatmentPlanId])
+  @@map("follow_up_notes")
+}
+
+model Consent {
+  id        String      @id @default(cuid())
+  patientId String
+  type      ConsentType
+  granted   Boolean
+  grantedAt DateTime?
+  revokedAt DateTime?
+  ipAddress String?
+  createdAt DateTime    @default(now())
+  patient   Profile     @relation("PatientConsents", fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, type])
+  @@index([patientId])
+  @@map("consents")
+}
+
+model SkinAnalysisResult {
+  id                  String     @id @default(cuid())
+  skinImageId         String     @unique
+  patientId           String
+  encounterId         String?
+  acneSeverity        Float?
+  rednessScore        Float?
+  pigmentScore        Float?
+  oilinessScore       Float?
+  rawScores           Json?
+  conditionType       String
+  modelVersion        String
+  confidence          Float?
+  doctorConfirmed     Boolean    @default(false)
+  doctorOverrideScore Float?
+  doctorNote          String?
+  confirmedAt         DateTime?
+  confirmedById       String?
+  analyzedAt          DateTime   @default(now())
+  error               String?
+  confirmedBy         Profile?   @relation("ConfirmedAnalyses", fields: [confirmedById], references: [id], onDelete: SetNull)
+  encounter           Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  patient             Profile    @relation("PatientSkinAnalysisResults", fields: [patientId], references: [id], onDelete: Cascade)
+  skinImage           SkinImage  @relation(fields: [skinImageId], references: [id], onDelete: Cascade)
+
+  @@index([encounterId])
+  @@index([patientId, analyzedAt])
+  @@map("skin_analysis_results")
+}
+
+model Treatment {
+  id              String        @id @default(cuid())
+  medicalRecordId String
+  serviceId       String
+  quantity        Int           @default(1)
+  priceAtTime     Int
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+  service         Service       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([medicalRecordId])
+  @@index([serviceId])
+  @@map("treatments")
+}
+
+model WaitlistEntry {
+  id                String         @id @default(cuid())
+  patientId         String
+  serviceId         String
+  preferredDoctorId String?
+  status            WaitlistStatus @default(WAITING)
+  notifiedAt        DateTime?
+  expiresAt         DateTime?
+  notes             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  patient           Profile        @relation("PatientWaitlist", fields: [patientId], references: [id], onDelete: Cascade)
+  preferredDoctor   DoctorProfile? @relation("DoctorWaitlist", fields: [preferredDoctorId], references: [id], onDelete: SetNull)
+  service           Service        @relation("ServiceWaitlist", fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, status])
+  @@index([preferredDoctorId, status])
+  @@index([serviceId, status])
+  @@map("waitlist_entries")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model audit_logs {
+  id          String   @id
+  actorId     String?
+  actorRole   Role?
+  action      String
+  targetTable String
+  targetId    String
+  oldValue    Json?
+  newValue    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+  profiles    Profile? @relation(fields: [actorId], references: [id])
+
+  @@index([action, createdAt])
+  @@index([actorId])
+  @@index([targetTable, targetId])
+}
+
+enum Role {
+  PATIENT
+  STAFF
+  DOCTOR
+  ADMIN
+}
+
+enum DoctorLevel {
+  FRESHER
+  JUNIOR
+  SENIOR
+  SPECIALIST
+  CONSULTANT
+}
+
+enum AppointmentStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum EncounterStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum MedicalRecordStatus {
+  DRAFT
+  FINALIZED
+  AMENDED
+}
+
+enum TreatmentPlanStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
+enum ConditionStatus {
+  ACTIVE
+  RESOLVED
+  RECURRENT
+  MONITORING
+}
+
+enum ConsentType {
+  STORE_MEDICAL_RECORD
+  STORE_SKIN_IMAGE
+  USE_IMAGE_FOR_AI_ANALYSIS
+  SHARE_WITH_DOCTOR
+  MARKETING_COMMUNICATION
+}
+
+enum PaymentStatus {
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+enum ConfirmationSource {
+  WEBHOOK
+  MANUAL
+}
+
+enum DayOfWeek {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum NotificationType {
+  SYSTEM
+  APPOINTMENT
+  PAYMENT
+  REMINDER
+  MANUAL
+  BROADCAST
+  ALERT
+}
+
+enum ApprovalStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum WaitlistStatus {
+  WAITING
+  NOTIFIED
+  BOOKED
+  EXPIRED
+  CANCELLED
+}

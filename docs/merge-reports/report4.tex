@@ -1,0 +1,1452 @@
+% =====================================================================
+% CHƯƠNG 4: XÂY DỰNG VÀ TRIỂN KHAI HỆ THỐNG
+% Clinic Booking System -- Báo cáo kỹ thuật
+% =====================================================================
+\documentclass[14pt,a4paper]{report}
+
+% --- Encoding & Font ---
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese]{babel}
+
+% --- Layout ---
+\usepackage[top=3cm,bottom=3cm,left=3.5cm,right=2cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% --- Code Listings ---
+\usepackage{listings}
+\usepackage{xcolor}
+
+\definecolor{codebg}{rgb}{0.97,0.97,0.97}
+\definecolor{codeframe}{rgb}{0.80,0.80,0.80}
+\definecolor{kwcolor}{rgb}{0.00,0.40,0.70}
+\definecolor{strcolor}{rgb}{0.13,0.55,0.13}
+\definecolor{cmtcolor}{rgb}{0.50,0.50,0.50}
+\definecolor{numcolor}{rgb}{0.50,0.00,0.50}
+
+\lstdefinestyle{techstyle}{
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{kwcolor}\bfseries,
+    stringstyle=\color{strcolor},
+    commentstyle=\color{cmtcolor}\itshape,
+    numberstyle=\tiny\color{numcolor},
+    numbers=left,
+    numbersep=8pt,
+    stepnumber=1,
+    breaklines=true,
+    breakatwhitespace=false,
+    tabsize=2,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=15pt,
+    xrightmargin=5pt,
+}
+\lstset{style=techstyle}
+
+% --- Tables ---
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+
+% --- Figures ---
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+
+% --- Misc ---
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{amsmath}
+
+% Tiêu đề chương/mục theo tiếng Việt
+\renewcommand{\chaptername}{Chương}
+
+% =====================================================================
+\begin{document}
+% =====================================================================
+
+\chapter{Xây Dựng và Triển Khai Hệ Thống}
+
+Chương này trình bày toàn bộ quá trình xây dựng và triển khai hệ thống
+đặt lịch phòng khám, từ việc thiết lập môi trường phát triển, cấu hình
+các dịch vụ nền tảng, triển khai các luồng nghiệp vụ cốt lõi, tích hợp
+thanh toán, đến các cơ chế bảo mật và xử lý tác vụ nền. Mỗi quyết định
+kỹ thuật được trình bày kèm theo ngữ cảnh, lý do lựa chọn và đánh đổi
+tương ứng, nhằm cung cấp tài liệu tham chiếu chính xác cho quá trình
+bảo trì và phát triển tiếp theo.
+
+% =====================================================================
+\section{Quy Trình Phát Triển Hệ Thống}
+% =====================================================================
+
+\subsection{Tổng quan mô hình phát triển}
+
+Dự án áp dụng mô hình phát triển tuần tự theo từng nhóm nghiệp vụ
+(role-based phased delivery), chia thành ba luồng phát triển song song
+nhưng có thứ tự ưu tiên rõ ràng. Mỗi luồng hoàn thành trước khi luồng
+tiếp theo bắt đầu, đảm bảo nền tảng kỹ thuật của lớp dưới luôn ổn định
+trước khi các lớp nghiệp vụ cao hơn được xây dựng.
+
+\begin{itemize}
+    \item \textbf{Luồng 1 -- Người Gác Cổng (Auth Layer):} Thiết lập
+          Supabase, thiết kế lược đồ cơ sở dữ liệu, cấu hình
+          xác thực, và triển khai chính sách Row Level Security.
+    \item \textbf{Luồng 2 -- Kỹ Sư Dữ Liệu (Data Logic):} Cấu hình
+          Prisma singleton, triển khai logic giao dịch, các tác vụ nền,
+          và thao tác CRUD với cơ chế khóa dữ liệu.
+    \item \textbf{Luồng 3 -- Tích Hợp Ngoại (Payment Integration):}
+          Bảo mật webhook, tích hợp VietQR, và thiết lập đường hầm
+          Ngrok cho môi trường phát triển.
+\end{itemize}
+
+\subsection{Chiến lược phân nhánh Git}
+
+Dự án sử dụng chiến lược phân nhánh theo tính năng (feature-branch
+strategy) với các nhánh chính:
+
+\begin{itemize}
+    \item \texttt{main}: Nhánh sản xuất ổn định, chỉ nhận merge khi
+          tính năng hoàn chỉnh và đã kiểm thử.
+    \item \texttt{branch1}: Nhánh phát triển tích hợp, nơi các
+          tính năng được hợp nhất trước khi đưa lên \texttt{main}.
+    \item \texttt{frontend-branch1}: Nhánh phát triển giao diện
+          hiện tại của dự án.
+\end{itemize}
+
+Quy tắc bắt buộc: không sử dụng \texttt{force-push} lên các nhánh
+chung; mọi thay đổi phá vỡ cấu trúc phải được thực hiện trên nhánh
+tính năng riêng trước khi tạo Pull Request.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{images/D4-01-git-strategy.png}
+    \caption{Chiến lược phân nhánh Git của dự án}
+    \label{fig:d4-01}
+\end{figure}
+
+\subsection{Vòng đời phát triển một tính năng}
+
+Quy trình hoàn chỉnh để phát triển và đưa một tính năng vào sản xuất
+bao gồm các bước:
+
+\begin{enumerate}
+    \item Tạo nhánh tính năng từ \texttt{branch1}.
+    \item Triển khai tính năng kèm kiểm thử cục bộ với Ngrok.
+    \item Kiểm tra build production cục bộ bằng \texttt{next build}.
+    \item Tạo Pull Request vào \texttt{branch1}.
+    \item Merge sau khi review và CI pass.
+    \item Deploy tự động lên Vercel thông qua GitHub integration.
+\end{enumerate}
+
+\subsection{Hệ thống đánh dấu tiến độ}
+
+Mỗi tác vụ phát triển được đánh dấu trạng thái bằng mã phiên bản
+dạng \texttt{[V\textit{x}-\textit{y}]} (ví dụ: \texttt{[V2-1]},
+\texttt{[V2-2]}) trong tài liệu nội bộ, giúp theo dõi mức độ hoàn
+thành của từng hạng mục mà không cần phụ thuộc vào công cụ quản lý
+dự án bên ngoài.
+
+\subsection{Chính sách kiểm tra trước khi merge}
+
+Trước khi hợp nhất bất kỳ nhánh nào, nhóm phát triển bắt buộc thực
+hiện:
+
+\begin{itemize}
+    \item Chạy \texttt{next build} để xác nhận không có lỗi TypeScript
+          hoặc lỗi biên dịch Turbopack.
+    \item Kiểm thử thủ công các luồng thanh toán bằng Ngrok tunnel.
+    \item Xác minh biến môi trường đã được cập nhật trên Vercel
+          Dashboard trước khi deploy.
+\end{itemize}
+
+% =====================================================================
+\section{Cài Đặt Môi Trường Phát Triển}
+% =====================================================================
+
+\subsection{Yêu cầu phần mềm}
+
+Môi trường phát triển yêu cầu các thành phần phần mềm sau:
+
+\begin{itemize}
+    \item \textbf{Node.js} $\geq$ 20 LTS: Runtime JavaScript phía máy chủ.
+    \item \textbf{npm} $\geq$ 10: Quản lý gói và thực thi script.
+    \item \textbf{Git} $\geq$ 2.40: Quản lý phiên bản mã nguồn.
+    \item \textbf{Ngrok}: Đường hầm HTTPS cục bộ để nhận webhook từ SePay.
+\end{itemize}
+
+\subsection{Khởi tạo dự án Next.js với Turbopack}
+
+Dự án sử dụng Next.js phiên bản mới nhất với Turbopack là công cụ
+đóng gói. Cấu hình \texttt{next.config.ts} kích hoạt Turbopack và
+đặt gói Prisma Client vào danh sách \texttt{serverExternalPackages}
+để tránh lỗi bundle:
+
+\begin{lstlisting}[language=JavaScript, caption={next.config.ts -- Cấu hình Turbopack và Prisma}]
+import type { NextConfig } from "next";
+import path from "path";
+
+const nextConfig: NextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
+  // Buoc cot loi: dua thu muc Prisma Client ra ngoai bundle
+  serverExternalPackages: [
+    path.resolve(__dirname, "./lib/generated/prisma")
+  ],
+  // Cho phep HMR tu domain Ngrok
+  allowedDevOrigins: ['https://cobalt-mulch-update.ngrok-free.dev'],
+};
+
+export default nextConfig;
+\end{lstlisting}
+
+\subsection{Cài đặt các thư viện phụ thuộc}
+
+\begin{lstlisting}[language=bash, caption={Cài đặt toàn bộ dependencies}]
+npm install
+\end{lstlisting}
+
+Các nhóm thư viện chính được sử dụng trong dự án:
+
+\begin{itemize}
+    \item \textbf{Framework:} \texttt{next}, \texttt{react},
+          \texttt{react-dom} (phiên bản 19).
+    \item \textbf{Cơ sở dữ liệu:} \texttt{prisma},
+          \texttt{@prisma/client}, \texttt{@prisma/adapter-pg}, \texttt{pg}.
+    \item \textbf{Xác thực:} \texttt{@supabase/supabase-js},
+          \texttt{@supabase/ssr}.
+    \item \textbf{Giao diện:} \texttt{tailwindcss},
+          \texttt{@radix-ui/*}, \texttt{shadcn}, \texttt{lucide-react}.
+    \item \textbf{Form \& Validation:} \texttt{react-hook-form},
+          \texttt{@hookform/resolvers}, \texttt{zod}.
+    \item \textbf{Tiện ích:} \texttt{date-fns}, \texttt{date-fns-tz},
+          \texttt{@tanstack/react-query}, \texttt{sonner}.
+\end{itemize}
+
+\subsection{Cấu hình biến môi trường cục bộ}
+
+Tạo file \texttt{.env.local} tại thư mục gốc với cấu trúc sau:
+
+\begin{lstlisting}[language=bash, caption={Cấu trúc file .env.local}]
+# Supabase -- Public keys (an toan de expose len client)
+NEXT_PUBLIC_SUPABASE_URL=https://[project-ref].supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
+
+# Prisma -- Runtime (Pooler, port 6543)
+DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+
+# Prisma -- Migration (Direct, port 5432)
+DIRECT_URL="postgresql://postgres:[pass]@db.[ref].supabase.co:5432/postgres"
+
+# SePay webhook
+WEBHOOK_SECRET=your-random-32-char-secret-here
+SEPAY_ACCOUNT_NO=123456789
+SEPAY_BANK_CODE=VCB
+SEPAY_BANK_DISPLAY_NAME=Vietcombank
+SEPAY_ACCOUNT_NAME=NGUYEN VAN A
+
+# Background job auth
+CRON_SECRET=your-cron-secret-here
+\end{lstlisting}
+
+\textbf{Lưu ý quan trọng:} Giá trị của \texttt{DATABASE\_URL} và
+\texttt{DIRECT\_URL} phải được bao trong dấu ngoặc kép (\texttt{""})
+để ngăn khoảng trắng thừa ở cuối dòng. Mật khẩu Supabase chỉ được
+chứa ký tự chữ và số; các ký tự đặc biệt như \texttt{@}, \texttt{\#},
+\texttt{\^{}} sẽ phá vỡ cấu trúc URL kết nối.
+
+\subsection{Khởi động môi trường phát triển}
+
+\begin{lstlisting}[language=bash, caption={Lệnh khởi động môi trường dev}]
+# Khoi dong Next.js dev server (che do webpack de debug)
+npm run dev
+
+# Hoac khoi dong voi Turbopack (production-like)
+npx next dev --turbopack
+
+# Thiet lap Ngrok tunnel de nhan SePay webhook
+ngrok http 3000
+\end{lstlisting}
+
+% =====================================================================
+\section{Cấu Hình Supabase và Xác Thực Người Dùng}
+% =====================================================================
+
+\subsection{Thiết lập dự án Supabase}
+
+Dự án sử dụng Supabase là nền tảng Backend-as-a-Service cung cấp
+cơ sở dữ liệu PostgreSQL, xác thực người dùng, và hệ thống Row Level
+Security. Vùng triển khai được chọn là \textbf{Southeast Asia
+(Singapore)} nhằm tối thiểu hóa độ trễ mạng từ Việt Nam.
+
+\textbf{Cảnh báo vận hành:} Supabase Free Tier tự động tạm dừng dự
+án sau 7 ngày không có hoạt động. Quá trình khởi động lại mất từ 30
+đến 60 giây và có thể gây timeout cho các request webhook đến trong
+thời gian này. Cơ chế idempotency (trình bày tại Mục~\ref{sec:sepay})
+xử lý tình huống này.
+
+\subsection{Cấu hình xác thực Email/Password}
+
+Trên Supabase Dashboard, cấu hình Authentication với:
+\begin{itemize}
+    \item \textbf{Email Auth:} Kích hoạt, yêu cầu xác nhận email.
+    \item \textbf{Redirect URLs:} Cấu hình URL được phép redirect
+          sau xác thực, bao gồm cả domain Ngrok cho môi trường phát triển.
+    \item \textbf{JWT Expiry:} Mặc định 3600 giây (1 giờ).
+\end{itemize}
+
+\subsection{Kiến trúc proxy.ts thay thế middleware.ts}
+
+\textbf{Thay đổi phá vỡ tương thích (Next.js 16.2 + Turbopack):}
+Next.js 16.2 với Turbopack đã loại bỏ hỗ trợ \texttt{middleware.ts}
+ở đường dẫn gốc. Sử dụng \texttt{middleware.ts} trên môi trường này
+gây xung đột routing không thể khắc phục. Giải pháp là thay thế
+hoàn toàn bằng \texttt{proxy.ts}:
+
+\begin{lstlisting}[language=JavaScript, caption={proxy.ts -- Entry point xác thực tại root}]
+import { updateSession } from "@/lib/supabase/proxy";
+import { type NextRequest } from "next/server";
+
+export async function proxy(request: NextRequest) {
+  return await updateSession(request);
+}
+
+export const config = {
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
+};
+\end{lstlisting}
+
+Logic xác thực được tập trung tại \texttt{lib/supabase/proxy.ts}.
+File này kiểm tra session người dùng và thực hiện redirect nếu
+người dùng chưa đăng nhập khi truy cập các đường dẫn được bảo vệ:
+
+\begin{lstlisting}[language=JavaScript, caption={lib/supabase/proxy.ts -- Logic xác thực tập trung}]
+const PROTECTED_PREFIXES = [
+  "/patient", "/staff", "/doctor",
+  "/admin", "/dashboard", "/clinic", "/my-schedule",
+]
+
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
+
+  if (!isProtectedPath(request.nextUrl.pathname)) {
+    return supabaseResponse
+  }
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll() { ... }, setAll(cookiesToSet) { ... } } }
+  )
+
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    const url = new URL("/auth/login", request.url)
+    url.searchParams.set("redirectTo",
+      request.nextUrl.pathname + request.nextUrl.search)
+    return NextResponse.redirect(url)
+  }
+
+  return supabaseResponse
+}
+\end{lstlisting}
+
+\textbf{Quy tắc bắt buộc:} Không tạo lại \texttt{middleware.ts}.
+Mọi logic xác thực phải đi qua \texttt{proxy.ts} và
+\texttt{lib/supabase/proxy.ts}.
+
+\subsection{Quy tắc bắt buộc: getUser() thay vì getSession()}
+
+Đây là một trong những quy tắc bảo mật quan trọng nhất của dự án:
+
+\begin{lstlisting}[language=JavaScript, caption={So sánh getUser() vs getSession()}]
+// DUNG: getUser() kiem tra JWT voi Supabase Server
+const { data: { user } } = await supabase.auth.getUser()
+if (!user) throw new Error('UNAUTHORIZED')
+
+// SAI: getSession() chi doc cookie cuc bo, khong xac thuc server
+// Ke tan cong co the gia mao cookie de bypass xac thuc
+// const { data: { session } } = await supabase.auth.getSession()
+\end{lstlisting}
+
+\textbf{Lý do:} \texttt{getUser()} thực hiện cuộc gọi trực tiếp đến
+Supabase Server để xác thực chữ ký JWT. Ngược lại, \texttt{getSession()}
+chỉ đọc dữ liệu từ cookie cục bộ mà không xác minh với server, khiến
+kẻ tấn công có thể giả mạo session. Trong hệ thống y tế, đây là lỗ
+hổng bảo mật nghiêm trọng.
+
+\subsection{Trigger SECURITY DEFINER tạo Profile tự động}
+
+Khi người dùng đăng ký mới, Supabase tạo bản ghi trong
+\texttt{auth.users} (schema hệ thống). Cần tự động tạo bản ghi
+tương ứng trong \texttt{public.profiles} (schema ứng dụng). Việc
+insert chéo schema đòi hỏi quyền đặc biệt, được xử lý bằng
+\texttt{SECURITY DEFINER} trigger:
+
+\begin{lstlisting}[language=SQL, caption={Trigger tự động tạo Profile khi user đăng ký}]
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER           -- Muon dung quyen postgres admin
+SET search_path = public   -- Ngan search_path injection
+AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id, supabase_user_id, full_name, role, created_at, updated_at
+  ) VALUES (
+    gen_random_uuid()::text,
+    NEW.id,
+    -- COALESCE dam bao khong crash neu frontend quen truyen full_name
+    COALESCE(NEW.raw_user_meta_data->>'full_name', 'Nguoi dung moi'),
+    'PATIENT',
+    NOW(), NOW()
+  );
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+\end{lstlisting}
+
+\textbf{Giải thích thiết kế:}
+\begin{itemize}
+    \item \textbf{\texttt{SECURITY DEFINER}:} Hàm thực thi với quyền
+          của người tạo (postgres admin), cho phép insert xuyên schema.
+    \item \textbf{\texttt{SET search\_path = public}:} Ngăn chặn
+          tấn công thay đổi search\_path để redirect lệnh sang schema khác.
+    \item \textbf{\texttt{COALESCE(...)}:} Giá trị dự phòng bắt buộc
+          vì \texttt{full\_name} không phải trường bắt buộc trong
+          Supabase Auth. Nếu không có fallback, trigger sẽ crash khi
+          frontend quên truyền tham số này.
+\end{itemize}
+
+\subsection{Thiết lập Row Level Security}
+
+RLS được kích hoạt trên tất cả các bảng nhạy cảm để bảo vệ dữ liệu
+khi truy cập qua Supabase Public API Key:
+
+\begin{lstlisting}[language=SQL, caption={Kích hoạt RLS và tạo policy cho bảng profiles}]
+-- Kich hoat RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Ham tro giup lay role hien tai
+CREATE OR REPLACE FUNCTION get_my_role()
+RETURNS TEXT AS $$
+  SELECT role::text FROM public.profiles
+  WHERE supabase_user_id = auth.uid()
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+-- Policy: PATIENT chi xem duoc chinh minh
+CREATE POLICY "patients_own_data" ON public.profiles
+  FOR ALL USING (
+    supabase_user_id = auth.uid()
+    OR get_my_role() IN ('STAFF', 'ADMIN', 'DOCTOR')
+  );
+\end{lstlisting}
+
+\textbf{Lưu ý kiến trúc quan trọng:} Prisma kết nối với cơ sở dữ
+liệu sử dụng role \texttt{postgres} với đặc quyền
+\texttt{BYPASSRLS}. Điều này có nghĩa là \textit{mọi Server Action
+viết bằng Prisma đều vượt qua 100\% chính sách RLS}. RLS chỉ bảo
+vệ các truy vấn thực hiện qua Supabase Client với \texttt{anon key}.
+Do đó, mỗi Server Action phải tự kiểm tra quyền hạn người dùng từ
+session ở đầu hàm (chi tiết tại Mục~\ref{sec:security}).
+
+% =====================================================================
+\section{Cấu Hình Cơ Sở Dữ Liệu và Prisma}
+% =====================================================================
+
+\subsection{Thiết kế lược đồ Prisma}
+
+Lược đồ cơ sở dữ liệu được định nghĩa trong \texttt{prisma/schema.prisma}
+với các thực thể cốt lõi gồm: \texttt{Profile}, \texttt{DoctorProfile},
+\texttt{DoctorScheduleRule}, \texttt{DoctorBlockedSlot},
+\texttt{Appointment}, \texttt{Payment}, \texttt{MedicalRecord},
+\texttt{Treatment}, \texttt{Service}, và \texttt{Notification}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.90\textwidth]{images/D4-02-prisma-schema.png}
+    \caption{Lược đồ quan hệ thực thể (ERD) của hệ thống}
+    \label{fig:d4-02}
+\end{figure}
+
+Phần khai báo generator được cấu hình để sử dụng Driver Adapters
+thay vì Rust Engine mặc định:
+
+\begin{lstlisting}[language=JavaScript, caption={Generator config trong schema.prisma}]
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  // DATABASE_URL va DIRECT_URL duoc truyen qua prisma.config.ts
+}
+\end{lstlisting}
+
+\subsection{Phân biệt DATABASE\_URL và DIRECT\_URL}
+
+Đây là một trong những điểm kỹ thuật quan trọng nhất, ảnh hưởng
+trực tiếp đến sự ổn định của cả môi trường phát triển lẫn sản xuất:
+
+\begin{table}[H]
+\centering
+\caption{So sánh DATABASE\_URL và DIRECT\_URL}
+\begin{tabularx}{\textwidth}{|l|X|X|}
+\hline
+\textbf{Thuộc tính} & \textbf{DATABASE\_URL} & \textbf{DIRECT\_URL} \\
+\hline
+Kiểu kết nối & Pooler (Transaction mode) & Direct (native) \\
+\hline
+Cổng & 6543 & 5432 \\
+\hline
+Host & \texttt{aws-0-ap-southeast-1.\allowbreak pooler.supabase.com} &
+      \texttt{db.[ref].\allowbreak supabase.co} \\
+\hline
+Sử dụng & Runtime -- Prisma Client trong Next.js &
+          Migration -- \texttt{prisma migrate} \\
+\hline
+\end{tabularx}
+\label{tab:db-urls}
+\end{table}
+
+\textbf{Cảnh báo nghiêm trọng:} Sử dụng Pooler connection
+(\texttt{DATABASE\_URL}) cho thao tác migration sẽ khiến lệnh
+\texttt{prisma migrate} bị treo vô thời hạn mà không có thông báo
+lỗi rõ ràng. Luôn dùng \texttt{DIRECT\_URL} cho migration.
+
+Cấu hình \texttt{prisma.config.ts} xử lý điều này tự động:
+
+\begin{lstlisting}[language=JavaScript, caption={prisma.config.ts -- Ưu tiên DIRECT\_URL cho migration}]
+import { config } from "dotenv";
+import { defineConfig } from "prisma/config";
+
+config({ path: ".env" });
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: { path: "prisma/migrations" },
+  datasource: {
+    // Uu tien DIRECT_URL cho migration; fallback ve DATABASE_URL
+    url: (process.env.DIRECT_URL ?? process.env.DATABASE_URL) as string,
+  },
+});
+\end{lstlisting}
+
+\subsection{Prisma Driver Adapter -- Giải pháp cho Turbopack}
+
+\textbf{Vấn đề gốc rễ:} Prisma 7 với \texttt{output = "lib/generated/prisma"}
+kết hợp Next.js 16.2 Turbopack tạo ra xung đột không thể giải quyết
+theo cách thông thường: Turbopack không thể xử lý file binary
+\texttt{.node} (Rust Engine) khi đặt ngoài thư mục \texttt{node\_modules}.
+
+Các giải pháp không thành công đã thử:
+\begin{itemize}
+    \item Sửa đường dẫn import sang \texttt{./generated/prisma/index.js}.
+    \item Thêm \texttt{engineType = "library"} vào \texttt{schema.prisma}.
+    \item Thêm \texttt{serverExternalPackages} vào \texttt{next.config.ts} đơn độc.
+\end{itemize}
+
+\textbf{Giải pháp triển khai -- Driver Adapter:} Thay thế hoàn toàn
+Rust Engine bằng thư viện JavaScript thuần thông qua
+\texttt{@prisma/adapter-pg} và \texttt{pg}:
+
+\begin{lstlisting}[language=JavaScript, caption={lib/prisma.ts -- Singleton Prisma với Driver Adapter}]
+import { PrismaClient } from './generated/prisma'
+import { PrismaPg } from '@prisma/adapter-pg'
+import pg from 'pg'
+
+const connectionString = `${process.env.DATABASE_URL}`
+
+// Singleton pattern chong ro ri ket noi khi hot-reload
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient,
+  pgPool: pg.Pool
+}
+
+// Tai su dung Connection Pool da ton tai
+const pool = globalForPrisma.pgPool ?? new pg.Pool({ connectionString })
+
+// Adapter: cau noi giup Prisma chay bang JavaScript thuan,
+// triet tieu phu thuoc vao binary Rust Engine
+const adapter = new PrismaPg(pool)
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    adapter,
+    log: process.env.NODE_ENV === 'development'
+      ? ['query', 'error', 'warn'] : ['error'],
+  })
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma
+  globalForPrisma.pgPool = pool
+}
+\end{lstlisting}
+
+\textbf{Đánh đổi được chấp nhận:} Thêm 2 thư viện nhỏ (\texttt{pg}
+và \texttt{@prisma/adapter-pg}) để đổi lấy sự ổn định tuyệt đối
+trên môi trường Turbopack.
+
+\subsection{Singleton pattern ngăn rò rỉ kết nối}
+
+Trong môi trường phát triển, Next.js hot-reload tạo instance module
+mới mỗi lần lưu file. Nếu không có singleton, mỗi lần reload tạo
+một \texttt{PrismaClient} mới, dẫn đến cạn kiệt connection pool
+(Supabase Free Tier giới hạn khoảng 10 kết nối đồng thời).
+
+Pattern \texttt{globalForPrisma} giải quyết vấn đề này bằng cách
+lưu instance vào \texttt{globalThis} -- đối tượng tồn tại xuyên suốt
+vòng đời Node.js process, không bị xóa khi module hot-reload. Trong
+production, mỗi Vercel serverless function chỉ khởi tạo một lần nên
+pattern này không có overhead bổ sung.
+
+\subsection{Quy trình thực hiện migration}
+
+\begin{lstlisting}[language=bash, caption={Quy trình migration cơ sở dữ liệu}]
+# Tao migration moi tu thay doi schema
+npx prisma migrate dev --name ten_migration
+
+# Ap dung migration len moi truong production
+npx prisma migrate deploy
+
+# Dong bo schema ma khong tao file migration (chi dev)
+npx prisma db push
+
+# Tai tao Prisma Client sau khi sua schema
+npx prisma generate
+\end{lstlisting}
+
+\subsection{Quy tắc trích dẫn camelCase trong SQL thô}
+
+PostgreSQL mặc định không phân biệt hoa/thường. Tuy nhiên, Prisma
+tạo tên cột theo kiểu camelCase có chữ hoa. Mọi câu lệnh SQL thô
+(dùng trong \texttt{pg\_cron}, trigger, RLS) phải bao tên cột trong
+dấu ngoặc kép:
+
+\begin{lstlisting}[language=SQL, caption={Quy tắc trích dẫn tên cột camelCase trong SQL}]
+-- SAI: PostgreSQL dich thanh "appointmentid" (chu thuong)
+SELECT appointmentId FROM appointments;
+
+-- DUNG: Giu nguyen ten chinh xac nhu Prisma tao ra
+SELECT "appointmentId" FROM "appointments";
+
+-- SAI: ENUM phai cast chinh xac
+WHERE status = 'PENDING_PAYMENT';
+
+-- DUNG: Cast voi ten ENUM duoc trich dan
+WHERE status = 'PENDING_PAYMENT'::"AppointmentStatus";
+\end{lstlisting}
+
+% =====================================================================
+\section{Triển Khai Các Luồng Nghiệp Vụ Lõi}
+% =====================================================================
+
+\subsection{Kiến trúc Server Actions}
+
+Toàn bộ logic nghiệp vụ được triển khai dưới dạng Next.js Server
+Actions trong thư mục \texttt{lib/actions/}. Mỗi action tuân theo
+nguyên tắc bốn bước:
+
+\begin{enumerate}
+    \item Xác thực phiên người dùng từ Supabase (\texttt{getUser()}).
+    \item Phân quyền dựa trên role lấy từ cơ sở dữ liệu.
+    \item Thực hiện thao tác nghiệp vụ với Prisma.
+    \item Gọi \texttt{revalidatePath()} để làm mới cache Next.js.
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{images/D4-03-server-action-flow.png}
+    \caption{Luồng xử lý của một Server Action điển hình}
+    \label{fig:d4-03}
+\end{figure}
+
+\subsection{Luồng đặt lịch hẹn}
+
+Luồng đặt lịch hẹn hỗ trợ cả hai loại bệnh nhân: thành viên đã
+đăng ký và khách vãng lai (guest). Tham số \texttt{patientId} được
+thiết lập là \texttt{null} cho khách vãng lai:
+
+\begin{lstlisting}[language=JavaScript, caption={createAppointment -- Xử lý cả thành viên lẫn guest}]
+export async function createAppointment(params: CreateAppointmentParams) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  let patientId: string | null = null
+
+  if (user) {
+    const profile = await prisma.profile.findUnique({
+      where: { supabaseUserId: user.id },
+      select: { id: true },
+    })
+    patientId = profile?.id ?? null
+  }
+
+  // Khach vang lai bat buoc phai co ten va so dien thoai
+  if (!patientId && (!params.guestName || !params.guestPhone)) {
+    throw new Error('GUEST_MISSING_INFO')
+  }
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      ...params,
+      patientId,        // null = guest, string = member
+      baseFee: 100000,  // Fix cung theo scope MVP
+    },
+  })
+  await notifyAppointmentCreated(appointment.id, "WEBSITE")
+  return { success: true, appointment }
+}
+\end{lstlisting}
+
+\subsection{Cơ chế khóa slot -- Lớp phòng thủ DB Constraint}
+
+Hệ thống sử dụng ràng buộc database để ngăn đặt trùng lịch thay vì
+query kiểm tra thủ công (dễ xảy ra race condition):
+
+\begin{lstlisting}[language=JavaScript, caption={Xử lý P2002 -- Unique constraint phòng double-booking}]
+// Trong schema.prisma:
+// @@unique([doctorId, appointmentDate])
+// -> Database tu dong reject neu trung slot
+
+try {
+  const appointment = await prisma.appointment.create({ data: {...} })
+} catch (error) {
+  if (error?.code === 'P2002') {
+    throw new Error('SLOT_TAKEN: Khung gio nay da co nguoi dat')
+  }
+  throw error
+}
+\end{lstlisting}
+
+\subsection{Snapshot giá dịch vụ khi kê đơn}
+
+Khi bác sĩ thêm dịch vụ vào hồ sơ bệnh án, giá tại thời điểm kê
+đơn được lưu vào trường \texttt{priceAtTime}:
+
+\begin{lstlisting}[language=JavaScript, caption={Snapshot giá dịch vụ -- đảm bảo tính bất biến lịch sử}]
+const service = await prisma.service.findUnique({
+  where: { id: serviceId, isActive: true }
+})
+const treatment = await tx.treatment.create({
+  data: {
+    medicalRecordId,
+    serviceId,
+    priceAtTime: service.price, // Snapshot gia tai thoi diem ke don
+    quantity,
+    notes,
+  }
+})
+\end{lstlisting}
+
+Thiết kế này đảm bảo khi admin thay đổi giá dịch vụ sau này, các
+hồ sơ lịch sử vẫn giữ giá gốc tại thời điểm kê đơn, đảm bảo tính
+toàn vẹn của báo cáo tài chính.
+
+\subsection{Cơ chế khóa y lệnh sau khi hoàn thành ca khám}
+
+Hồ sơ y tế trở thành bất biến khi cuộc hẹn chuyển sang trạng thái
+\texttt{COMPLETED}. Mọi API thêm/sửa/xóa y lệnh đều phải kiểm tra
+điều kiện này:
+
+\begin{lstlisting}[language=JavaScript, caption={assertTreatmentEditable -- Kiểm tra khóa trước khi sửa}]
+async function assertTreatmentEditable(medicalRecordId: string) {
+  const record = await prisma.medicalRecord.findUnique({
+    where: { id: medicalRecordId },
+    include: { appointment: { select: { status: true } } }
+  })
+  if (record.appointment.status === 'COMPLETED') {
+    throw new Error('TREATMENT_LOCKED: Ca kham da hoan thanh')
+  }
+  return record
+}
+\end{lstlisting}
+
+\subsection{Quản lý lịch làm việc bác sĩ}
+
+Lịch làm việc được quản lý qua hai mô hình dữ liệu:
+
+\begin{itemize}
+    \item \textbf{\texttt{DoctorScheduleRule}:} Quy tắc lịch lặp lại
+          hàng tuần theo ngày, với ràng buộc unique
+          \texttt{[doctorId, dayOfWeek, startMinute]}.
+    \item \textbf{\texttt{DoctorBlockedSlot}:} Các khung giờ bị chặn
+          cho ngày cụ thể (nghỉ phép, sự kiện đặc biệt).
+\end{itemize}
+
+\subsection{Phân quyền theo vai trò}
+
+Hàm \texttt{requireRole} trong \texttt{lib/auth/require-role.ts} là
+lớp bảo vệ tập trung cho các Server Action yêu cầu quyền đặc biệt,
+tránh lặp lại code kiểm tra role ở mỗi action. Hệ thống định nghĩa
+bốn vai trò: \texttt{PATIENT}, \texttt{STAFF}, \texttt{DOCTOR},
+và \texttt{ADMIN}.
+
+% =====================================================================
+\section{Triển Khai Thanh Toán SePay}
+\label{sec:sepay}
+% =====================================================================
+
+\subsection{Tổng quan tích hợp SePay VietQR}
+
+Hệ thống tích hợp với SePay -- một cổng thanh toán trung gian
+chuyên xử lý chuyển khoản ngân hàng tại Việt Nam. Luồng thanh toán
+hoàn chỉnh:
+
+\begin{enumerate}
+    \item Bệnh nhân đặt lịch $\rightarrow$ hệ thống tạo mã QR chuyển khoản.
+    \item Bệnh nhân chuyển khoản qua ứng dụng ngân hàng.
+    \item Ngân hàng thông báo SePay về giao dịch.
+    \item SePay gửi webhook đến API endpoint của hệ thống.
+    \item Hệ thống xác nhận thanh toán và tạo hồ sơ y tế.
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.88\textwidth]{images/D4-04-payment-flow.png}
+    \caption{Luồng thanh toán SePay -- từ QR đến xác nhận}
+    \label{fig:d4-04}
+\end{figure}
+
+\subsection{Giới hạn 25 ký tự VietQR và giải pháp}
+
+VietQR API giới hạn nội dung chuyển khoản (\texttt{addInfo}) ở
+đúng \textbf{25 ký tự}. CUID do Prisma tạo có độ dài 25 ký tự; cộng
+với tiền tố ``CK '' (3 ký tự) thành 28 ký tự -- vượt giới hạn và
+API trả về HTTP 400 mà không tự động cắt bớt.
+
+\textbf{Giải pháp:} Lấy 22 ký tự cuối của CUID, ghép với tiền tố
+``CK '' để tạo nội dung chuyển khoản đúng 25 ký tự:
+
+\begin{lstlisting}[language=JavaScript, caption={lib/sepay-deposit-qr.ts -- Tạo nội dung chuyển khoản}]
+export function buildSepayTransferContent(appointmentId: string): string {
+  // "CK " (3 ky tu) + 22 ky tu cuoi CUID = dung 25 ky tu
+  return `CK ${appointmentId.slice(-22)}`
+}
+
+export function generateSepayDepositQRImageUrl(
+  appointmentId: string,
+  amount: number,
+): string {
+  const acc = process.env.SEPAY_ACCOUNT_NO ?? ""
+  const bank = process.env.SEPAY_BANK_CODE?.trim() ?? ""
+  const des = buildSepayTransferContent(appointmentId)
+
+  const url = new URL("https://qr.sepay.vn/img")
+  url.searchParams.set("acc", acc)
+  url.searchParams.set("bank", bank)
+  url.searchParams.set("amount", String(amount))
+  url.searchParams.set("des", des)
+  return url.toString()
+}
+\end{lstlisting}
+
+\textbf{Đánh đổi:} Mất 3 ký tự đầu của CUID làm giảm nhẹ tính duy
+nhất, nhưng xác suất va chạm trong quy mô phòng khám MVP là không
+đáng kể. Webhook phân giải ngược bằng query \texttt{endsWith}:
+
+\begin{lstlisting}[language=JavaScript, caption={Phân giải partialId về appointmentId đầy đủ}]
+// Regex trich xuat 22 ky tu sau "CK "
+const CK_PARTIAL_RE = /CK\s+([a-z0-9]{22})/i
+
+// Tim appointment co ID ket thuc bang partialId
+const found = await tx.appointment.findFirst({
+  where: { id: { endsWith: partialAppointmentId } },
+  select: { id: true },
+})
+\end{lstlisting}
+
+\subsection{Giao dịch 3 bước nguyên tử}
+
+Khi webhook xác nhận thanh toán, 3 thao tác sau phải thành công
+hoàn toàn hoặc thất bại hoàn toàn -- không có trạng thái trung gian:
+
+\begin{lstlisting}[language=JavaScript, caption={confirmPayment -- Giao dịch nguyên tử 3 bước}]
+export async function confirmPayment({ partialAppointmentId, amount, ... }) {
+  const result = await prisma.$transaction(async (tx) => {
+
+    // Kiem tra idempotency: neu da CONFIRMED -> tra ve som
+    if (appointment.status === AppointmentStatus.CONFIRMED) {
+      return { success: true, idempotent: true }
+    }
+
+    // Buoc 1: Tao ban ghi Payment
+    const payment = await tx.payment.create({
+      data: {
+        appointmentId: resolvedId, amount,
+        status: PaymentStatus.CONFIRMED,
+        confirmationSource: source,
+        confirmedAt: new Date(),
+      }
+    })
+
+    // Buoc 2: Cap nhat trang thai Appointment
+    await tx.appointment.update({
+      where: { id: resolvedId },
+      data: { status: AppointmentStatus.CONFIRMED },
+    })
+
+    // Buoc 3: Tao MedicalRecord voi snapshot PII khach vang lai
+    const medicalRecord = await tx.medicalRecord.create({
+      data: {
+        appointmentId: resolvedId,
+        patientId: appointment.patientId ?? null,
+        guestSnapshotName: appointment.patientId
+          ? null : appointment.guestName,
+        guestSnapshotPhone: appointment.patientId
+          ? null : appointment.guestPhone,
+      },
+    })
+
+    return { success: true, payment, medicalRecord, idempotent: false }
+  })
+  return result
+}
+\end{lstlisting}
+
+\textbf{Tại sao cần Bước 3?} \texttt{MedicalRecord} lưu bản sao PII
+của khách vãng lai tại thời điểm đặt lịch. Khi \texttt{pg\_cron} ẩn
+danh hóa trường \texttt{guestName} trong bảng \texttt{appointments}
+sau 4 tuần, hồ sơ y tế vẫn giữ nguyên thông tin lâm sàng.
+
+\subsection{Xử lý Webhook SePay}
+
+Route handler \texttt{/api/webhook} nhận và xử lý thông báo từ SePay:
+
+\begin{lstlisting}[language=JavaScript, caption={app/api/webhook/route.ts -- Xử lý SePay webhook}]
+// crypto.timingSafeEqual chi co tren Node.js, khong phai Edge
+export const runtime = "nodejs"
+
+export async function POST(request: NextRequest) {
+  // 1. Xac thuc API key trong Authorization header
+  const authHeader = request.headers.get("Authorization") ?? ""
+  if (!isValidSepayApiKey(authHeader, process.env.WEBHOOK_SECRET)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  // 2. Chuan hoa payload da dinh dang
+  const payload = normalizeSepayPayload(await request.json())
+  if (!payload) return new Response(null, { status: 201 })
+
+  // 3. Chi xu ly giao dich "tien den"
+  if (payload.transferType !== "in")
+    return new Response(null, { status: 201 })
+
+  // 4. Trich xuat partialId tu noi dung chuyen khoan
+  const memo = buildMemoForCkMatch(payload)
+  const match = memo.match(CK_PARTIAL_RE)
+  if (!match) return new Response(null, { status: 201 })
+
+  // 5. Xac nhan thanh toan (giao dich nguyen tu)
+  await confirmPayment({ partialAppointmentId: match[1], amount, ... })
+
+  return new Response(null, { status: 201 }) // Luon tra 201
+}
+\end{lstlisting}
+
+\subsection{Cơ chế Idempotency -- HTTP 201}
+
+SePay tự động thử lại webhook tối đa 7 lần theo cấp số Fibonacci
+nếu nhận được phản hồi ngoài dải 2xx hoặc timeout (8 giây/request,
+tổng cửa sổ thử lại khoảng 5 giờ).
+
+\textbf{Chiến lược:} Endpoint luôn trả về HTTP 201 cho mọi tình
+huống không phải lỗi server thực sự, bao gồm:
+
+\begin{itemize}
+    \item Payload rỗng hoặc không hợp lệ.
+    \item Giao dịch không phải loại ``tiền đến''.
+    \item Không khớp mẫu ``CK''.
+    \item Cuộc hẹn đã được xác nhận trước đó (idempotent).
+    \item Prisma ném lỗi P2002 (unique constraint).
+    \item Lỗi nghiệp vụ không thể thử lại (sai số tiền, sai trạng thái).
+\end{itemize}
+
+Chỉ trả về HTTP 500 khi có lỗi server thực sự không xác định, báo
+hiệu SePay cần thử lại lần sau.
+
+\subsection{Chuẩn hóa Payload đa định dạng}
+
+SePay có thể gửi payload dưới nhiều cấu trúc JSON khác nhau. Hàm
+\texttt{normalizeSepayPayload()} xử lý tất cả các biến thể:
+
+\begin{lstlisting}[language=JavaScript, caption={normalizeSepayPayload -- Chuẩn hóa payload đa dạng}]
+function normalizeSepayPayload(raw: unknown): SepayTransaction | null {
+  if (Array.isArray(raw)) return asSepayTransaction(raw[0])
+  if (typeof raw !== "object") return null
+
+  const obj = raw as Record<string, unknown>
+  if ("data" in obj) {
+    return Array.isArray(obj.data)
+      ? asSepayTransaction(obj.data[0])
+      : asSepayTransaction(obj.data)
+  }
+  return asSepayTransaction(raw)
+}
+\end{lstlisting}
+
+\subsection{Xác thực chữ ký API Key}
+
+\begin{lstlisting}[language=JavaScript, caption={isValidSepayApiKey -- Kiểm tra Authorization header}]
+function isValidSepayApiKey(
+  authHeader: string,
+  secret: string | undefined
+): boolean {
+  const expected = (secret ?? "").trim()
+  if (!expected) return false
+
+  // SePay gui: "apikey <your-secret>"
+  const match = /^apikey\s+(.+)$/i.exec(authHeader.trim())
+  return Boolean(match && match[1].trim() === expected)
+}
+\end{lstlisting}
+
+\subsection{Thanh toán thủ công bởi nhân viên}
+
+Ngoài webhook tự động, nhân viên (STAFF/ADMIN) có thể xác nhận
+thanh toán thủ công. Luồng này sử dụng cùng giao dịch 3 bước nhưng
+đặt \texttt{confirmationSource = MANUAL} và ghi lại
+\texttt{confirmedById} cho mục đích kiểm toán tài chính.
+
+% =====================================================================
+\section{Triển Khai Background Jobs và Thông Báo}
+% =====================================================================
+
+\subsection{Tổng quan hệ thống tác vụ nền}
+
+Hệ thống sử dụng hai cơ chế song song cho tác vụ nền:
+\begin{itemize}
+    \item \textbf{\texttt{pg\_cron}} (PostgreSQL extension): Xử lý
+          các job trực tiếp trên database -- tự động hủy lịch và ẩn
+          danh hóa PII.
+    \item \textbf{Cron Route Handler + Vercel Cron}: Xử lý logic
+          thông báo phức tạp yêu cầu truy vấn nhiều bảng và gửi
+          notification đến nhiều người nhận.
+\end{itemize}
+
+\subsection{pg\_cron Job 1 -- Tự động hủy lịch quá hạn thanh toán}
+
+\begin{lstlisting}[language=SQL, caption={pg\_cron: Tự động hủy lịch PENDING\_PAYMENT sau 15 phút}]
+SELECT cron.schedule(
+  'auto-cancel-pending-appointments',
+  '*/1 * * * *',  -- Chay moi 1 phut
+  $$
+    UPDATE "appointments"
+    SET "status"    = 'CANCELLED'::"AppointmentStatus",
+        "updatedAt" = NOW()
+    WHERE "status" = 'PENDING_PAYMENT'::"AppointmentStatus"
+      AND "createdAt" < NOW() - INTERVAL '15 minutes'
+      AND NOT EXISTS (
+        SELECT 1 FROM "payments"
+        WHERE "payments"."appointmentId" = "appointments"."id"
+      )
+  $$
+);
+\end{lstlisting}
+
+\textbf{Thiết kế quan trọng:} Điều kiện \texttt{NOT EXISTS} kiểm tra
+bảng \texttt{payments} thay vì chỉ dựa vào trường \texttt{status},
+nhằm giảm thiểu race condition khi webhook đến đúng lúc job đang chạy.
+
+\subsection{pg\_cron Job 2 -- Ẩn danh hóa PII khách vãng lai}
+
+\begin{lstlisting}[language=SQL, caption={pg\_cron: Ẩn danh hóa PII khách vãng lai sau 4 tuần}]
+SELECT cron.schedule(
+  'anonymize-guest-pii',
+  '0 2 * * 0',  -- Chay luc 2:00 sang Chu nhat hang tuan
+  $$
+    UPDATE "appointments"
+    SET "guestName"  = '***',
+        "guestPhone" = '***',
+        "guestEmail" = '***',
+        "updatedAt"  = NOW()
+    WHERE "guestName" IS NOT NULL
+      AND "guestName" != '***'
+      AND "status" IN (
+        'CONFIRMED'::"AppointmentStatus",
+        'COMPLETED'::"AppointmentStatus",
+        'CANCELLED'::"AppointmentStatus",
+        'NO_SHOW'::"AppointmentStatus"
+      )
+      AND "createdAt" < NOW() - INTERVAL '4 weeks'
+  $$
+);
+\end{lstlisting}
+
+\textbf{Thiết kế quan trọng:} Job chỉ ẩn danh hóa trường trong bảng
+\texttt{appointments}. Bản sao PII trong \texttt{MedicalRecord}
+(\texttt{guestSnapshotName}, \texttt{guestSnapshotPhone}) được giữ
+nguyên vĩnh viễn để phục vụ hồ sơ lâm sàng.
+
+\subsection{Notification Automation Service}
+
+Service \texttt{notification-automation.service.ts} xử lý các luồng
+thông báo tự động phức tạp, được kích hoạt qua route handler
+\texttt{/api/cron/notifications} mỗi 5 phút:
+
+\begin{itemize}
+    \item \textbf{Cảnh báo nhân viên:} Lịch hẹn sắp tự hủy (còn 5 phút,
+          tức là đã chờ 10--15 phút chưa thanh toán).
+    \item \textbf{Tự động hủy và thông báo bệnh nhân:} Lịch hẹn
+          \texttt{PENDING\_PAYMENT} quá 15 phút.
+    \item \textbf{Nhắc lịch ngày mai:} Gửi cho bệnh nhân và bác sĩ
+          có lịch \texttt{CONFIRMED} vào ngày hôm sau.
+    \item \textbf{Nhắc lịch trong 2 giờ:} Gửi cho bệnh nhân có lịch
+          trong khoảng 115--125 phút tới.
+    \item \textbf{Cảnh báo bất thường:} Alert cho admin khi có hơn 5
+          lịch bị hủy trong 1 giờ.
+\end{itemize}
+
+\subsection{Bảo mật Cron Route Handler}
+
+\begin{lstlisting}[language=JavaScript, caption={app/api/cron/notifications/route.ts -- Bảo vệ bằng Bearer token}]
+export async function POST(request: NextRequest) {
+  const expected = process.env.CRON_SECRET?.trim()
+  const received = request.headers.get("Authorization")
+    ?.replace(/^Bearer\s+/i, "").trim()
+
+  if (!expected || received !== expected) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const result = await runNotificationAutomation()
+  return Response.json({ ok: true, result })
+}
+\end{lstlisting}
+
+\subsection{Cơ chế chống gửi thông báo trùng lặp}
+
+Hàm \texttt{alreadySent()} kiểm tra trong 26 giờ qua có notification
+cùng \texttt{recipientId}, \texttt{title}, \texttt{appointmentId}
+chưa bị thu hồi không. Nếu có, bỏ qua để tránh spam người dùng khi
+cron chạy nhiều lần trong ngày.
+
+\subsection{Cấu trúc dữ liệu thông báo}
+
+Mô hình \texttt{Notification} lưu trữ các thông báo với 7 loại:
+\texttt{SYSTEM}, \texttt{APPOINTMENT}, \texttt{PAYMENT},
+\texttt{REMINDER}, \texttt{MANUAL}, \texttt{BROADCAST}, và
+\texttt{ALERT}. Trường \texttt{revokedAt} cho phép thu hồi thông báo
+mà không cần xóa vĩnh viễn, đảm bảo tính toàn vẹn của audit trail.
+
+% =====================================================================
+\section{Triển Khai Production}
+% =====================================================================
+
+\subsection{Nền tảng triển khai}
+
+Ứng dụng được triển khai trên \textbf{Vercel} thông qua tích hợp
+GitHub tự động. Mỗi lần push lên nhánh chính sẽ kích hoạt pipeline
+build và deploy mà không cần can thiệp thủ công.
+
+\subsection{Cấu hình biến môi trường trên Vercel}
+
+Tất cả biến trong \texttt{.env.local} phải được cấu hình trên
+Vercel Dashboard $\rightarrow$ Settings $\rightarrow$ Environment
+Variables. Đặc biệt chú ý:
+
+\begin{itemize}
+    \item \texttt{DATABASE\_URL}: Dùng Pooler (port 6543) cho runtime.
+    \item \texttt{DIRECT\_URL}: Không cần thiết trên production
+          (migration chạy cục bộ).
+    \item \texttt{WEBHOOK\_SECRET}: Phải khớp chính xác với secret
+          được cấu hình trên SePay Dashboard.
+    \item \texttt{CRON\_SECRET}: Được Vercel Cron truyền vào header
+          khi gọi endpoint cron.
+\end{itemize}
+
+\subsection{Build và kiểm tra production cục bộ}
+
+\begin{lstlisting}[language=bash, caption={Kiểm tra build trước khi deploy}]
+# Build production (phat hien loi TypeScript va Turbopack)
+npm run build
+
+# Chay server production cuc bo de test
+npm run start
+\end{lstlisting}
+
+\subsection{Cấu hình Vercel Cron Jobs}
+
+File \texttt{vercel.json} định nghĩa lịch chạy tác vụ nền:
+
+\begin{lstlisting}[language=bash, caption={vercel.json -- Cấu hình Vercel Cron}]
+{
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
+\end{lstlisting}
+
+\subsection{Thiết lập Ngrok cho webhook development}
+
+\begin{lstlisting}[language=bash, caption={Thiết lập đường hầm Ngrok để nhận webhook SePay}]
+# Khoi dong Ngrok, lay URL tunnel moi
+ngrok http 3000
+# Vi du URL: https://cobalt-mulch-update.ngrok-free.dev
+
+# Sau do cap nhat dong thoi:
+# 1. allowedDevOrigins trong next.config.ts
+# 2. Webhook URL tren SePay Dashboard
+\end{lstlisting}
+
+\textbf{Lưu ý:} Domain Ngrok miễn phí thay đổi mỗi lần khởi động
+lại. Phải cập nhật đồng thời \texttt{allowedDevOrigins} trong
+\texttt{next.config.ts} và Webhook URL trên SePay Dashboard.
+
+\subsection{Quy trình deploy migration lên production}
+
+\begin{lstlisting}[language=bash, caption={Quy trình deploy migration an toàn}]
+# 1. Tao migration trong moi truong dev
+npx prisma migrate dev --name them_tinh_nang_x
+
+# 2. Commit migration file va schema thay doi vao Git
+
+# 3. Tren may co DIRECT_URL production (port 5432):
+npx prisma migrate deploy
+
+# CANH BAO: Khong chay migrate deploy tren Vercel Functions
+# (thieu DIRECT_URL, timeout qua ngan cho DDL)
+\end{lstlisting}
+
+\subsection{Giám sát và xử lý sự cố}
+
+Hệ thống ghi log theo cấp độ môi trường:
+\begin{itemize}
+    \item \textbf{Development:} Prisma log
+          \texttt{['query', 'error', 'warn']}.
+    \item \textbf{Production:} Chỉ log \texttt{['error']} để tối thiểu
+          hóa overhead.
+\end{itemize}
+
+Webhook route có hệ thống log chi tiết với prefix
+\texttt{[Webhook/SePay]} giúp lọc nhanh trên Vercel Dashboard khi
+cần debug sự cố thanh toán.
+
+\subsection{Chiến lược rollback}
+
+Khi phát hiện lỗi nghiêm trọng sau khi deploy:
+\begin{enumerate}
+    \item Sử dụng Vercel Dashboard $\rightarrow$ Deployments để
+          rollback về phiên bản trước (instant, không downtime).
+    \item Nếu có migration database không tương thích, tạo migration
+          nghịch đảo và chạy \texttt{prisma migrate deploy} với
+          \texttt{DIRECT\_URL}.
+\end{enumerate}
+
+% =====================================================================
+\section{Bảo Mật Khi Triển Khai}
+\label{sec:security}
+% =====================================================================
+
+\subsection{Mô hình bảo mật nhiều lớp}
+
+Hệ thống áp dụng mô hình bảo mật theo chiều sâu (defense-in-depth)
+với 4 lớp bảo vệ độc lập:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.80\textwidth]{images/D4-05-security-layers.png}
+    \caption{Mô hình bảo mật 4 lớp của hệ thống}
+    \label{fig:d4-05}
+\end{figure}
+
+\begin{enumerate}
+    \item \textbf{Lớp Transport:} HTTPS bắt buộc (Vercel cung cấp
+          TLS certificate tự động).
+    \item \textbf{Lớp Authentication:} Supabase JWT xác thực qua
+          \texttt{getUser()} với mọi protected route trong \texttt{proxy.ts}.
+    \item \textbf{Lớp Authorization:} Server Actions kiểm tra role
+          thủ công từ database sau khi xác thực session.
+    \item \textbf{Lớp Database:} RLS bảo vệ truy cập qua Supabase
+          Public API (không áp dụng cho Prisma -- xem Mục 4.3.6).
+\end{enumerate}
+
+\subsection{Nguyên tắc không tin tưởng dữ liệu từ client}
+
+\textbf{Quy tắc bắt buộc:} Không bao giờ sử dụng giá trị \texttt{role},
+\texttt{patientId}, hay \texttt{doctorId} gửi từ client. Luôn lấy
+từ session server-side:
+
+\begin{lstlisting}[language=JavaScript, caption={Mẫu chuẩn -- Lấy role từ database, không từ client}]
+export async function someProtectedAction(data: UserInput) {
+  // Buoc 1: Xac thuc -- lay user tu Supabase Server
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('UNAUTHORIZED')
+
+  // Buoc 2: Phan quyen -- lay role tu database (khong tu JWT payload)
+  const profile = await prisma.profile.findUnique({
+    where: { supabaseUserId: user.id },
+    select: { id: true, role: true }
+  })
+  if (!profile || profile.role !== 'ADMIN') {
+    throw new Error('FORBIDDEN')
+  }
+
+  // Buoc 3: Thuc thi logic nghiep vu
+}
+\end{lstlisting}
+
+\subsection{Bảo mật webhook SePay}
+
+\begin{itemize}
+    \item \textbf{API Key xác thực:} Header
+          \texttt{Authorization: apikey <secret>} kiểm tra với
+          \texttt{WEBHOOK\_SECRET} trong biến môi trường.
+    \item \textbf{Không có secret trong code:} \texttt{WEBHOOK\_SECRET}
+          không bao giờ được commit vào repository.
+    \item \textbf{Chỉ xử lý giao dịch ``tiền đến'':} Lọc
+          \texttt{transferType !== "in"} ngay đầu handler.
+    \item \textbf{Validate số tiền:} Từ chối nếu
+          \texttt{amount < appointment.baseFee}.
+\end{itemize}
+
+\subsection{Quản lý bí mật và biến môi trường}
+
+\begin{itemize}
+    \item File \texttt{.env.local} và \texttt{.env} được liệt kê
+          trong \texttt{.gitignore}, không bao giờ commit.
+    \item Chỉ các biến có tiền tố \texttt{NEXT\_PUBLIC\_} được phép
+          expose ra client-side.
+    \item Tất cả secret production chỉ tồn tại trên Vercel Environment
+          Variables.
+    \item \texttt{CRON\_SECRET} bảo vệ cron route handler khỏi bị
+          gọi tùy tiện từ bên ngoài.
+\end{itemize}
+
+\subsection{Bảo mật dữ liệu y tế}
+
+\begin{itemize}
+    \item \textbf{Cô lập dữ liệu bệnh nhân:} RLS đảm bảo bệnh nhân
+          chỉ đọc được dữ liệu của chính mình qua Supabase Client.
+    \item \textbf{Ẩn danh hóa PII:} \texttt{pg\_cron} tự động thay
+          thế thông tin nhận dạng của khách vãng lai bằng \texttt{***}
+          sau 4 tuần, tuân thủ nguyên tắc tối thiểu hóa dữ liệu.
+    \item \textbf{Bất biến hồ sơ y tế:} Sau khi ca khám hoàn thành,
+          y lệnh không thể chỉnh sửa, đảm bảo tính toàn vẹn pháp lý.
+    \item \textbf{Snapshot giá:} \texttt{priceAtTime} trong
+          \texttt{Treatment} ghi lại giá tại thời điểm kê đơn, đảm
+          bảo tính chính xác của hóa đơn.
+\end{itemize}
+
+\subsection{Phòng chống SQL Injection}
+
+Toàn bộ truy vấn database đi qua Prisma ORM với parameterized queries,
+loại bỏ hoàn toàn nguy cơ SQL Injection. Các đoạn SQL thô (trong
+\texttt{pg\_cron} và trigger) chỉ chứa giá trị cứng (constants),
+không nhận input từ người dùng.
+
+% =====================================================================
+\section{Các Vấn Đề Kỹ Thuật và Hướng Xử Lý}
+% =====================================================================
+
+\subsection{Xung đột Turbopack -- Prisma Rust Engine}
+
+\textbf{Vấn đề:} Turbopack không thể bundle file binary \texttt{.node}
+(Prisma Rust Engine) khi nằm ngoài \texttt{node\_modules}. Lỗi phát
+sinh:
+
+\begin{lstlisting}[language=bash]
+PrismaClientConstructorValidationError: Using engine type "client"
+requires either "adapter" or "accelerateUrl".
+\end{lstlisting}
+
+\textbf{Giải pháp:} Chuyển sang Driver Adapter (\texttt{pg}) thay vì
+Rust Engine. Kết hợp với \texttt{serverExternalPackages} trong
+\texttt{next.config.ts} để đẩy thư mục Prisma Client ra khỏi bundle.
+
+\textbf{Kết quả:} Build ổn định, không còn lỗi runtime liên quan
+đến binary native module.
+
+\subsection{Migration bị treo khi dùng Pooler Connection}
+
+\textbf{Vấn đề:} Lệnh \texttt{prisma migrate dev} treo vô thời hạn
+khi \texttt{DATABASE\_URL} trỏ đến Pooler (port 6543). Không có
+thông báo lỗi, quá trình chỉ đứng im mà không kết thúc.
+
+\textbf{Nguyên nhân:} Pooler transaction mode không hỗ trợ các lệnh
+DDL phức tạp (\texttt{CREATE TABLE}, \texttt{ALTER TABLE}) yêu cầu
+kết nối trực tiếp, không đi qua pool trung gian.
+
+\textbf{Giải pháp:} Tạo \texttt{DIRECT\_URL} riêng trỏ đến port
+5432 (Direct Connection). Cấu hình \texttt{prisma.config.ts} ưu tiên
+\texttt{DIRECT\_URL} cho mọi thao tác migration.
+
+\subsection{Router.refresh() không cập nhật Server Component}
+
+\textbf{Vấn đề:} Sau khi Server Action hoàn thành, giao diện không
+tự cập nhật dù đã gọi \texttt{router.refresh()} trong Client Component.
+
+\textbf{Nguyên nhân:} \texttt{router.refresh()} re-fetch server
+components nhưng không trigger re-render nếu Server Action chưa gọi
+\texttt{revalidatePath()} để xóa cache Next.js.
+
+\textbf{Giải pháp:} Mỗi Server Action phải gọi \texttt{revalidatePath()}
+với đúng các path liên quan trước khi trả về kết quả. Ví dụ:
+
+\begin{lstlisting}[language=JavaScript, caption={Gọi revalidatePath sau khi thay đổi dữ liệu}]
+revalidatePath("/staff")
+revalidatePath("/staff/appointments")
+revalidatePath("/admin")
+revalidatePath("/patient")
+\end{lstlisting}
+
+\subsection{Race condition trong xác nhận webhook}
+
+\textbf{Vấn đề:} SePay gửi webhook lặp nhanh (retry) có thể tạo ra
+hai request đồng thời cùng xác nhận một cuộc hẹn, dẫn đến tạo hai
+bản ghi \texttt{Payment}.
+
+\textbf{Giải pháp nhiều lớp:}
+\begin{enumerate}
+    \item \textbf{Prisma transaction:} Đọc trạng thái appointment và
+          tạo payment trong cùng một transaction, ngăn race condition
+          ở tầng ứng dụng.
+    \item \textbf{Unique constraint:} Ràng buộc unique trên
+          \texttt{Payment.appointmentId} đảm bảo database-level --
+          Prisma ném P2002 nếu tạo trùng.
+    \item \textbf{Idempotency check:} Kiểm tra
+          \texttt{appointment.status === CONFIRMED} trả về sớm mà
+          không tạo thêm bản ghi.
+\end{enumerate}
+
+\subsection{Mất PII khi ẩn danh hóa sớm}
+
+\textbf{Vấn đề:} \texttt{pg\_cron} job ẩn danh hóa trường
+\texttt{guestName} trong bảng \texttt{appointments} sau 4 tuần,
+nhưng thông tin này vẫn cần cho hồ sơ y tế lâm sàng.
+
+\textbf{Giải pháp -- Snapshot trong MedicalRecord:} Bước 3 của giao
+dịch xác nhận thanh toán tạo bản sao PII vào các trường
+\texttt{guestSnapshotName} và \texttt{guestSnapshotPhone} trong
+\texttt{MedicalRecord}. Bảng \texttt{MedicalRecord} không bị job
+ẩn danh hóa tác động, đảm bảo thông tin lâm sàng được bảo tồn
+vĩnh viễn.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{images/D4-06-pii-anonymization.png}
+    \caption{Chiến lược ẩn danh hóa PII -- phân tách dữ liệu vận hành và lâm sàng}
+    \label{fig:d4-06}
+\end{figure}
+
+% =====================================================================
+\end{document}
+% =====================================================================
