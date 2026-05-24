@@ -45,19 +45,5 @@ next-env.d.ts
 
 /lib/generated/prisma
 
-/keynote
-/frontend_pipeline
-/frontend_demo
-/clinic_booking_main-admin-patient-ui-complete
-/dermacare-project_v3
-/.agents
-/.codex
-/.sixth
-/ml-benchmark/**/*.zip
-/ml-benchmark/**/__pycache__
-/ml-benchmark/**/*.pyc
-/ml-benchmark-kaggle.zip
-/phongkhamtay-main (2)
-
 
 

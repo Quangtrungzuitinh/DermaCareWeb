@@ -4,6 +4,10 @@ DermaCare Clinic Platform là hệ thống vận hành phòng khám da liễu: �
 
 Codebase dùng Next.js App Router, Supabase Auth, PostgreSQL, Prisma, phân quyền theo vai trò, SePay webhook, Groq chatbot, Hugging Face skin analysis và Google Drive cho ảnh lâm sàng.
 
+## Demo
+
+![DermaCare demo](demo/image_2.webp)
+
 ## Sản Phẩm
 
 - Public booking cho khách và bệnh nhân đã đăng nhập.
@@ -174,4 +178,3 @@ npm run test:e2e
 4. Cấu hình SePay webhook: `https://<domain>/api/webhook`.
 5. Set AI/Google Drive credentials nếu bật các tính năng tương ứng.
 6. Chạy `npm run build` trong CI trước khi release.
-
