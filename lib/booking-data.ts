@@ -29,14 +29,20 @@ export async function fetchBookingSelectData() {
     ])
   } catch (error) {
     console.error("[booking-data] specialist relation query failed", error)
-    ;[doctors, services] = await Promise.all([
-      prisma.doctorProfile.findMany({
-        where: { isActive: true },
-        include: { profile: true },
-        orderBy: { profile: { fullName: "asc" } },
-      }),
-      prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-    ])
+    try {
+      ;[doctors, services] = await Promise.all([
+        prisma.doctorProfile.findMany({
+          where: { isActive: true },
+          include: { profile: true },
+          orderBy: { profile: { fullName: "asc" } },
+        }),
+        prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+      ])
+    } catch (fallbackError) {
+      console.error("[booking-data] database unavailable", fallbackError)
+      doctors = []
+      services = []
+    }
   }
   const patient = await fetchCurrentPatient().catch((error) => {
     console.error("[booking-data] patient lookup failed", error)
