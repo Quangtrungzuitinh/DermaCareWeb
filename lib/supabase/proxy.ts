@@ -11,11 +11,20 @@ function isProtectedPath(pathname: string) {
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  // Keep public pages available when a Vercel environment is missing Supabase vars.
+  // Protected pages will still be redirected to login below.
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (isProtectedPath(request.nextUrl.pathname)) {
+      return NextResponse.redirect(new URL("/auth/login", request.url))
+    }
+    return supabaseResponse
+  }
+
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -28,18 +37,23 @@ export async function updateSession(request: NextRequest) {
           )
         },
       },
-    },
-  )
+    })
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-  if (!user && isProtectedPath(request.nextUrl.pathname)) {
-    const url = new URL("/auth/login", request.url)
-    url.searchParams.set("redirectTo", request.nextUrl.pathname + request.nextUrl.search)
-    return NextResponse.redirect(url)
+    if (!user && isProtectedPath(request.nextUrl.pathname)) {
+      const url = new URL("/auth/login", request.url)
+      url.searchParams.set("redirectTo", request.nextUrl.pathname + request.nextUrl.search)
+      return NextResponse.redirect(url)
+    }
+
+    return supabaseResponse
+  } catch {
+    if (isProtectedPath(request.nextUrl.pathname)) {
+      return NextResponse.redirect(new URL("/auth/login", request.url))
+    }
+    return supabaseResponse
   }
-
-  return supabaseResponse
 }
