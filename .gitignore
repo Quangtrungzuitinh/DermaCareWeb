@@ -49,5 +49,15 @@ next-env.d.ts
 
 /lib/generated/prisma
 
+# Local documentation and AI test artifacts are kept on the developer machine.
+*.md
+__tests__/skin-specialties.test.ts
+__tests__/skin-triage.test.ts
+tests/integration/skin-ai.test.ts
+tests/integration/SKIN_AI_CASE.md
+vitest.skin-ai.config.ts
+scripts/check-hf.mjs
+scripts/check-groq.mjs
+
 
 
