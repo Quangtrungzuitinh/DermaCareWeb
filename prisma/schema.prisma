@@ -49,27 +49,58 @@ model Profile {
   @@map("profiles")
 }
 
+model DemoTestAccount {
+  id           String   @id
+  role         Role
+  email        String   @unique
+  displayName  String
+  passwordHint String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([role, isActive])
+  @@map("demo_test_accounts")
+}
+
 model DoctorProfile {
-  id              String               @id @default(cuid())
-  profileId       String?              @unique
-  licenseNumber   String               @unique
-  seniorityLevel  DoctorLevel
-  specialty       String?
-  isActive        Boolean              @default(false)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  approvalStatus  ApprovalStatus       @default(PENDING)
-  appointments    Appointment[]        @relation("DoctorAppointments")
-  blockedSlots    DoctorBlockedSlot[]
-  encounters      Encounter[]          @relation("DoctorEncounters")
-  medicalRecords  MedicalRecord[]      @relation("DoctorMedicalRecords")
-  prescriptions   Prescription[]       @relation("DoctorPrescriptions")
-  profile         Profile?             @relation(fields: [profileId], references: [id], onDelete: SetNull)
-  scheduleRules   DoctorScheduleRule[]
-  treatmentPlans  TreatmentPlan[]      @relation("DoctorTreatmentPlans")
-  waitlistEntries WaitlistEntry[]      @relation("DoctorWaitlist")
+  id                 String                    @id @default(cuid())
+  profileId          String?                   @unique
+  licenseNumber      String                    @unique
+  seniorityLevel     DoctorLevel
+  specialty          String?
+  expertiseTags      String[]                  @default([]) @map("expertiseTags")
+  isActive           Boolean                   @default(false)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  approvalStatus     ApprovalStatus            @default(PENDING)
+  appointments       Appointment[]             @relation("DoctorAppointments")
+  blockedSlots       DoctorBlockedSlot[]
+  encounters         Encounter[]               @relation("DoctorEncounters")
+  medicalRecords     MedicalRecord[]           @relation("DoctorMedicalRecords")
+  prescriptions      Prescription[]            @relation("DoctorPrescriptions")
+  profile            Profile?                  @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  scheduleRules      DoctorScheduleRule[]
+  expertiseLabels    DoctorExpertiseLabel[]
+  serviceAssignments DoctorServiceAssignment[]
+  treatmentPlans     TreatmentPlan[]           @relation("DoctorTreatmentPlans")
+  waitlistEntries    WaitlistEntry[]           @relation("DoctorWaitlist")
 
   @@map("doctor_profiles")
+}
+
+model DoctorSpecialtyGroup {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  tags        String[]
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("doctor_specialty_groups")
 }
 
 model DoctorScheduleRule {
@@ -108,19 +139,55 @@ model DoctorBlockedSlot {
 }
 
 model Service {
-  id              String          @id @default(cuid())
-  name            String
-  price           Int
-  description     String?
-  isActive        Boolean         @default(true)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  durationMinutes Int             @default(30)
-  treatments      Treatment[]
-  waitlistEntries WaitlistEntry[] @relation("ServiceWaitlist")
+  id                String                    @id @default(cuid())
+  name              String
+  price             Int
+  description       String?
+  isActive          Boolean                   @default(true)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  durationMinutes   Int                       @default(30)
+  treatments        Treatment[]
+  waitlistEntries   WaitlistEntry[]           @relation("ServiceWaitlist")
+  doctorAssignments DoctorServiceAssignment[]
 
   @@index([isActive])
   @@map("services")
+}
+
+model DoctorExpertiseLabel {
+  id        String        @id @default(cuid())
+  doctorId  String
+  modelCode String
+  labelEn   String
+  labelVi   String
+  groupCode String
+  riskLevel String
+  aliases   String[]      @default([])
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  doctor    DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, modelCode])
+  @@index([modelCode])
+  @@index([groupCode])
+  @@map("doctor_expertise_labels")
+}
+
+model DoctorServiceAssignment {
+  id        String        @id @default(cuid())
+  doctorId  String
+  serviceId String
+  reason    String?
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  doctor    DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  service   Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, serviceId])
+  @@index([serviceId, isActive])
+  @@map("doctor_service_assignments")
 }
 
 model ClinicFaq {

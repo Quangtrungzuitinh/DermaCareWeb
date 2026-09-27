@@ -5,6 +5,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { prisma } from '@/lib/prisma'
 import { getAvailableSlots } from '@/lib/actions/slot.actions'
 import type { DoctorLevel } from '@/lib/generated/prisma'
+import { getSkinRoutingGroup, getSkinSpecialtyTier } from '@/constants/skin-specialties'
 
 const CLINIC_TIMEZONE = 'Asia/Ho_Chi_Minh'
 const RECOMMENDATION_LIMIT = 5
@@ -18,30 +19,8 @@ const SENIORITY_SCORE: Record<DoctorLevel, number> = {
   CONSULTANT: 50,
 }
 
-type AiPredictionInput = { label?: unknown }
-
 function clinicDateAtStartOfDay(dateKey: string) {
   return new Date(`${dateKey}T00:00:00`)
-}
-
-function extractConditionKeywords(conditionJsonString?: string) {
-  if (!conditionJsonString) return []
-  try {
-    const parsed = JSON.parse(conditionJsonString) as unknown
-    if (!Array.isArray(parsed)) return []
-    const keywords = parsed
-      .flatMap((item) => {
-        const p = item as AiPredictionInput
-        if (typeof p?.label !== 'string') return []
-        const label = p.label.trim().toLowerCase()
-        const tokens = label.split(/[^a-z0-9]+/i).filter((t) => t.length > 2)
-        return [label, ...tokens]
-      })
-      .filter(Boolean)
-    return Array.from(new Set(keywords))
-  } catch {
-    return []
-  }
 }
 
 async function hasAvailableSlotInNextThreeDays(doctorId: string) {
@@ -56,15 +35,23 @@ async function hasAvailableSlotInNextThreeDays(doctorId: string) {
 }
 
 export async function getRecommendedDoctors(conditionJsonString?: string) {
-  const conditionKeywords = extractConditionKeywords(conditionJsonString)
+  const group = getSkinRoutingGroup(conditionJsonString)
   const doctors = await prisma.doctorProfile.findMany({
-    where: { isActive: true },
+    where: { isActive: true, approvalStatus: 'APPROVED', profile: { role: 'DOCTOR' } },
     select: {
       id: true,
       profileId: true,
       licenseNumber: true,
       seniorityLevel: true,
       specialty: true,
+      expertiseTags: true,
+      expertiseLabels: {
+        select: { modelCode: true, labelEn: true, labelVi: true, aliases: true, riskLevel: true },
+      },
+      serviceAssignments: {
+        where: { isActive: true },
+        select: { service: { select: { id: true, name: true, description: true } }, reason: true },
+      },
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -72,16 +59,25 @@ export async function getRecommendedDoctors(conditionJsonString?: string) {
   })
 
   const scored = await Promise.all(
-    doctors.map(async (doctor) => {
-      const specialty = doctor.specialty?.toLowerCase() ?? ''
-      const specialtyMatchScore = conditionKeywords.some((kw) => specialty.includes(kw)) ? 50 : 0
+    doctors.filter((doctor) => getSkinSpecialtyTier(doctor.specialty, group) > 0).map(async (doctor) => {
+      const specialtyTier = getSkinSpecialtyTier(doctor.specialty, group)
+      let activeLabel = ''
+      try {
+        const parsed = conditionJsonString ? JSON.parse(conditionJsonString) as Array<{ label?: unknown; score?: unknown }> : []
+        activeLabel = String(parsed.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))[0]?.label ?? '').toLowerCase()
+      } catch {
+        activeLabel = ''
+      }
+      const expertiseMatchScore = doctor.expertiseTags.some((tag) => tag.toLowerCase() === activeLabel) ||
+        doctor.expertiseLabels.some((label) => [label.labelEn, label.labelVi, ...label.aliases]
+          .some((tag) => tag.toLowerCase() === activeLabel)) ? 10 : 0
       const seniorityScore = SENIORITY_SCORE[doctor.seniorityLevel] ?? 10
       const availabilityScore = (await hasAvailableSlotInNextThreeDays(doctor.id)) ? 30 : 0
-      return { ...doctor, score: specialtyMatchScore + seniorityScore + availabilityScore }
+      return { ...doctor, specialtyTier, score: expertiseMatchScore + seniorityScore + availabilityScore }
     }),
   )
 
   return scored
-    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .sort((a, b) => b.specialtyTier - a.specialtyTier || b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, RECOMMENDATION_LIMIT)
 }

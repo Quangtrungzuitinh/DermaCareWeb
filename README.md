@@ -45,13 +45,20 @@ Mutation quan trọng nên đi qua server actions/services để giữ role chec
 
 ## Setup Local
 
+Windows hoặc dùng lại Supabase đã có dữ liệu: làm theo [LOCAL_SETUP.md](LOCAL_SETUP.md).
+Kiểm tra `npm run db:inspect` và `npm run db:status` trước khi áp dụng migration;
+không reset database hoặc xóa lịch sử migration.
+
 Yêu cầu: Node.js 20+, npm, Supabase project có PostgreSQL access.
 
 ```bash
 cp .env.example .env.local
 npm install
 npx prisma generate
-npx prisma migrate dev
+npm run db:inspect
+npm run db:status
+# Chỉ deploy sau khi kiểm tra schema/lịch sử và xử lý migration consent trùng:
+# npm run db:deploy
 npm run dev
 ```
 
@@ -82,7 +89,7 @@ DATABASE_URL=
 DIRECT_URL=
 ```
 
-Lưu ý: `.env.example` có `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, nhưng runtime code hiện đọc `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+Runtime đọc `NEXT_PUBLIC_SUPABASE_ANON_KEY`; đặt Supabase public/publishable key vào biến này.
 
 Thanh toán:
 
@@ -167,7 +174,8 @@ npm run test:e2e
 - Không commit credentials thật. Secret phải nằm trong `.env.local` hoặc deployment environment.
 - Payment confirmation phải idempotent vì webhook có thể retry.
 - Role-specific pages phải enforce authorization server-side.
-- Patient UI không được lộ raw AI labels, confidence scores, raw JSON hoặc model reasoning.
+- Hồ sơ bệnh án bệnh nhân không hiển thị raw AI labels, confidence scores, raw JSON hoặc model reasoning.
+- Riêng upload ảnh ở bước chọn bác sĩ: theo yêu cầu sản phẩm, hiển thị tối đa 3 nhãn AI vượt ngưỡng và điểm tin cậy phân loại, kèm thông báo cần bác sĩ xác nhận. Không dùng điểm này làm mức độ nặng. Danh sách 31 nhãn được đối chiếu với model config ngày 27/09/2026 trong `constants/skin-model-labels.ts`.
 - Public chatbot chỉ trả lời trong public clinic context.
 
 ## Deployment

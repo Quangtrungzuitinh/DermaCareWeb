@@ -1,7 +1,11 @@
 import type { DoctorProfile, Profile } from "@/lib/generated/prisma"
 import type { SlotItem } from "@/types/booking"
 
-export type DoctorWithProfile = DoctorProfile & { profile: Profile }
+export type DoctorWithProfile = DoctorProfile & {
+  profile: Profile
+  expertiseLabels?: Array<{ modelCode: string; labelEn: string; labelVi: string }>
+  serviceAssignments?: Array<{ service: { id: string; name: string; description: string | null } }>
+}
 export type PatientSummary = { fullName: string; email: string | null; phone: string | null } | null
 export type SlotGroup = { date: string; label: string; slots: SlotItem[] }
 

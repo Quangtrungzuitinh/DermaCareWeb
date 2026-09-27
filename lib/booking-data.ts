@@ -15,7 +15,11 @@ export async function fetchBookingSelectData() {
   const [doctors, services, patient] = await Promise.all([
     prisma.doctorProfile.findMany({
       where: { isActive: true },
-      include: { profile: true },
+      include: {
+        profile: true,
+        expertiseLabels: { select: { modelCode: true, labelEn: true, labelVi: true } },
+        serviceAssignments: { where: { isActive: true }, include: { service: true } },
+      },
       orderBy: { profile: { fullName: "asc" } },
     }),
     prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),

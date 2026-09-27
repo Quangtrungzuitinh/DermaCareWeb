@@ -55,6 +55,11 @@ export function DoctorRow({
           <div className="mt-0.5 truncate text-xs text-muted">
             Chuyên khoa {doctor.specialty ?? "Da liễu"}
           </div>
+          {doctor.serviceAssignments?.length ? (
+            <div className="mt-1 truncate text-[11px] font-semibold text-blue-600">
+              Dịch vụ: {doctor.serviceAssignments.map((item) => item.service.name).join(" · ")}
+            </div>
+          ) : null}
         </div>
         <button
           type="button"
@@ -74,6 +79,14 @@ export function DoctorRow({
       </div>
       {expanded && (
         <div className="border-t border-hairline bg-surface-soft px-4 pb-4 pt-4">
+          {doctor.expertiseLabels?.length ? (
+            <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Nhãn bệnh AI nhận diện</div>
+              <div className="mt-1 text-xs leading-5 text-slate-700">
+                {doctor.expertiseLabels.map((label) => label.labelVi).join(" · ")}
+              </div>
+            </div>
+          ) : null}
           <div className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted">
             Giờ khám -{" "}
             <span className="text-ink">{rangeMode ? "Khoảng ngày đã chọn" : dateLabel}</span>

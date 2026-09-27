@@ -14,6 +14,6 @@ export default defineConfig({
   },
   datasource: {
     // Prefer DIRECT_URL for migrations; fall back to DATABASE_URL for local checks.
-    url: (process.env.DIRECT_URL ?? process.env.DATABASE_URL) as string,
+    url: (process.env.DIRECT_URL || process.env.DATABASE_URL) as string,
   },
 })

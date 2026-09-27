@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { completeDoctorProfile } from "@/lib/actions/doctor-profile.actions"
 import type { ApprovalStatus, DoctorLevel } from "@/lib/generated/prisma"
+import { SKIN_SPECIALTY_OPTIONS } from "@/constants/skin-specialties"
 
 const LEVEL_OPTIONS: { value: DoctorLevel; label: string }[] = [
   { value: "FRESHER", label: "Fresher" },
@@ -209,11 +210,15 @@ export function DoctorOnboardingGuard({
                     <Field label="Chuyên khoa" required>
                       <input
                         name="specialty"
+                        list="skin-specialty-options"
                         required
                         defaultValue={doctorProfile?.specialty ?? ""}
                         placeholder="VD: Da liễu thẩm mỹ, Laser & Trẻ hóa"
                         className={inputClass}
                       />
+                      <datalist id="skin-specialty-options">
+                        {SKIN_SPECIALTY_OPTIONS.map((specialty) => <option key={specialty} value={specialty} />)}
+                      </datalist>
                     </Field>
                   </div>
                 </div>

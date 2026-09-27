@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { LogIn } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,15 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [demoAccounts, setDemoAccounts] = useState<Array<{ role: string; email: string; passwordHint: string; displayName: string }>>([])
   const router = useRouter()
+
+  useEffect(() => {
+    fetch("/api/auth/demo-seed")
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setDemoAccounts(data?.accounts ?? []))
+      .catch(() => undefined)
+  }, [])
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -100,6 +108,24 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
           <LogIn className="mr-2 h-4 w-4" />
           {isLoading ? "Đang đăng nhập..." : "Đăng nhập"}
         </Button>
+
+        {demoAccounts.length > 0 && (
+          <div className="rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] p-3">
+            <div className="mb-2 text-xs font-bold uppercase tracking-wide text-[#475569]">Đăng nhập thử nghiệm</div>
+            <div className="grid grid-cols-2 gap-2">
+              {demoAccounts.map((account) => (
+                <button
+                  key={account.role}
+                  type="button"
+                  onClick={() => { setEmail(account.email); setPassword(account.passwordHint); setError(null) }}
+                  className="rounded-lg border border-[#cbd5e1] bg-white px-2 py-2 text-xs font-semibold text-[#334155] transition hover:border-[#2563eb] hover:bg-[#eff6ff]"
+                >
+                  {account.displayName.replace("Tài khoản demo ", "")}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <p className="text-center text-sm text-[#64748b]">
           Chưa có tài khoản?{" "}

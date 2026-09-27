@@ -4,6 +4,7 @@ import Image from "next/image"
 import { useRef, useState } from "react"
 import { Camera, CheckCircle2, Loader2, X } from "lucide-react"
 import { analyzeSkinAndMatchDoctor } from "@/lib/actions/skin-analysis.actions"
+import { getSkinRoutingGroup, SKIN_SPECIALTIES } from "@/constants/skin-specialties"
 
 interface SkinAnalysisUploadProps {
   onResult: (doctorIds: string[]) => void
@@ -17,12 +18,15 @@ export type PatientSkinAssessment = {
   description: string
   matchCount: number
   conditionNames: string[]
+  predictions: { label: string; score: number }[]
+  recommendedSpecialty: string | null
   skinScore: number | null
   skinScoreLabel: string
   observationTags: string[]
   possibleSigns: string[]
   prepareForVisit: string[]
   seekCareSoonIf: string[]
+  triage?: { level: "RED" | "YELLOW" | "GREEN"; label: string; message: string }
 }
 
 type AiPrediction = { label?: string; score?: number; alert?: boolean }
@@ -30,13 +34,20 @@ type AiPrediction = { label?: string; score?: number; alert?: boolean }
 function buildPatientAssessment(
   conditionJson: string | null,
   matchCount: number,
+  triage?: PatientSkinAssessment["triage"],
 ): PatientSkinAssessment | null {
   if (!conditionJson) return buildGenericPatientAssessment(matchCount)
 
   let predictions: AiPrediction[] = []
   try {
     const parsed = JSON.parse(conditionJson) as unknown
-    predictions = Array.isArray(parsed) ? (parsed as AiPrediction[]) : []
+    predictions = Array.isArray(parsed)
+      ? (parsed as AiPrediction[])
+          .filter((item) => item && typeof item.label === "string" && item.label.trim() &&
+            typeof item.score === "number" && Number.isFinite(item.score) && item.score >= 0 && item.score <= 1)
+          .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+          .slice(0, 3)
+      : []
   } catch {
     return buildGenericPatientAssessment(matchCount)
   }
@@ -120,6 +131,11 @@ function buildPatientAssessment(
       : "AI chỉ đọc ảnh để gợi ý hướng khám ban đầu; bác sĩ sẽ là người kết luận sau khi thăm khám.",
     matchCount,
     conditionNames,
+    predictions: predictions.map((prediction) => ({ label: prediction.label!, score: prediction.score! })),
+    recommendedSpecialty: (() => {
+      const group = getSkinRoutingGroup(conditionJson)
+      return group ? SKIN_SPECIALTIES[group] : null
+    })(),
     skinScore,
     skinScoreLabel: getSkinScoreLabel(skinScore),
     observationTags,
@@ -140,6 +156,7 @@ function buildPatientAssessment(
           "Đau, rát, chảy dịch, mủ hoặc ảnh hưởng sinh hoạt",
           "Đã tự dùng thuốc nhưng không cải thiện",
         ],
+    triage,
   }
 }
 
@@ -154,6 +171,8 @@ function buildGenericPatientAssessment(matchCount: number): PatientSkinAssessmen
       "AI chưa đủ cơ sở để mô tả dấu hiệu cụ thể, nhưng đã gợi ý bác sĩ phù hợp để bạn đặt lịch khám.",
     matchCount,
     conditionNames: [],
+    predictions: [],
+    recommendedSpecialty: null,
     skinScore: null,
     skinScoreLabel: "Chưa đủ dữ liệu",
     observationTags: ["Tổng quan da", "Vùng cần theo dõi", "Bác sĩ kiểm tra trực tiếp"],
@@ -171,6 +190,7 @@ function buildGenericPatientAssessment(matchCount: number): PatientSkinAssessmen
       "Có sốt, sưng nóng đỏ rõ hoặc ảnh hưởng vùng mắt/môi",
       "Bạn lo lắng vì thay đổi mới xuất hiện và tiến triển nhanh",
     ],
+    triage: undefined,
   }
 }
 
@@ -235,6 +255,8 @@ export function SkinAnalysisUpload({ onResult, onAssessment }: SkinAnalysisUploa
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle")
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [matchCount, setMatchCount] = useState(0)
+  const [assessment, setAssessment] = useState<PatientSkinAssessment | null>(null)
+  const [hasAnalysis, setHasAnalysis] = useState(false)
 
   async function handleFile(file: File) {
     if (!file.type.startsWith("image/")) return
@@ -242,6 +264,9 @@ export function SkinAnalysisUpload({ onResult, onAssessment }: SkinAnalysisUploa
     const preview = URL.createObjectURL(file)
     setPreviewUrl(preview)
     setStatus("loading")
+    setAssessment(null)
+    setHasAnalysis(false)
+    onAssessment?.(null)
 
     try {
       const base64 = await resizeToBase64(file)
@@ -258,12 +283,17 @@ export function SkinAnalysisUpload({ onResult, onAssessment }: SkinAnalysisUploa
 
       setMatchCount(result.doctorIds.length)
       onResult(result.doctorIds)
-      onAssessment?.(buildPatientAssessment(result._condition, result.doctorIds.length))
+      const nextAssessment = buildPatientAssessment(result._condition, result.doctorIds.length, result._triage ?? undefined)
+      setAssessment(nextAssessment)
+      setHasAnalysis(Boolean(result._condition))
+      onAssessment?.(nextAssessment)
       setStatus("done")
     } catch {
       sessionStorage.removeItem("ai_skin")
       onResult([])
       onAssessment?.(null)
+      setAssessment(null)
+      setHasAnalysis(false)
       setStatus("error")
     }
   }
@@ -278,6 +308,8 @@ export function SkinAnalysisUpload({ onResult, onAssessment }: SkinAnalysisUploa
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl(null)
     setMatchCount(0)
+    setAssessment(null)
+    setHasAnalysis(false)
     sessionStorage.removeItem("ai_skin")
     onResult([])
     onAssessment?.(null)
@@ -323,9 +355,13 @@ export function SkinAnalysisUpload({ onResult, onAssessment }: SkinAnalysisUploa
           <div className="flex flex-1 flex-col gap-0.5">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-[#16a34a]">
               <CheckCircle2 className="h-4 w-4" />
-              Tìm thấy {matchCount} bác sĩ phù hợp
+              {hasAnalysis
+                ? matchCount > 0 ? `Gợi ý ${matchCount} bác sĩ đúng nhóm chuyên môn hoặc Da liễu tổng quát` : "Đã phân tích ảnh — chưa có bác sĩ phù hợp"
+                : "Chưa có kết quả phân tích ảnh"}
             </div>
-            <span className="text-xs text-[#64748b]">Dựa trên ảnh da của bạn</span>
+            <span className="text-xs text-[#64748b]">
+              {hasAnalysis ? "Dựa trên ảnh da của bạn" : "Bạn vẫn có thể chọn bác sĩ để đặt lịch khám"}
+            </span>
           </div>
           <button
             type="button"
@@ -335,6 +371,56 @@ export function SkinAnalysisUpload({ onResult, onAssessment }: SkinAnalysisUploa
             <X className="h-3 w-3" />
             Xóa
           </button>
+        </div>
+      )}
+
+      {status === "done" && (
+        <div role="status" aria-live="polite" className="border-t border-blue-100 px-4 py-3 text-sm">
+          <h3 className="font-semibold text-slate-900">Các tình trạng AI dự đoán từ ảnh</h3>
+          {hasAnalysis && assessment ? (
+            <>
+              {assessment.triage && (
+                <div className={`mb-3 rounded-xl border px-3 py-3 ${assessment.triage.level === "RED" ? "border-red-200 bg-red-50 text-red-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+                  <div className="font-bold">Mức cảnh báo: {assessment.triage.level}</div>
+                  <p className="mt-1 text-sm leading-5">{assessment.triage.message}</p>
+                </div>
+              )}
+              <ol className="mt-3 space-y-2">
+                {assessment.predictions.map((prediction, index) => (
+                  <li key={prediction.label} className="rounded-lg border border-blue-100 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-medium text-slate-900">{prediction.label}</span>
+                      <span className="whitespace-nowrap font-semibold text-blue-700">
+                        {(prediction.score * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {index === 0 ? "Dự đoán có điểm cao nhất" : "Dự đoán thay thế"}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+              {assessment.recommendedSpecialty && (
+                <p className="mt-3 font-medium text-slate-800">Nhóm chuyên môn gợi ý: {assessment.recommendedSpecialty}</p>
+              )}
+              {matchCount === 0 && (
+                <p className="mt-2 text-amber-800">
+                  Hiện chưa có bác sĩ đã được duyệt thuộc nhóm này hoặc Da liễu tổng quát.
+                  Vui lòng liên hệ phòng khám để được hướng dẫn đặt lịch phù hợp.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-slate-500">
+                Tên tình trạng được giữ nguyên theo kết quả model. Phần trăm là điểm tin cậy
+                phân loại, không phải mức độ nặng hay xác suất bạn mắc bệnh. Đây là dự đoán AI,
+                cần bác sĩ xác nhận.
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-slate-600">
+              AI chưa đưa ra được nhận định cho ảnh này. Bạn có thể thử lại với ảnh rõ nét,
+              đủ sáng hoặc tiếp tục đặt lịch để bác sĩ kiểm tra trực tiếp.
+            </p>
+          )}
         </div>
       )}
 
