@@ -12,19 +12,36 @@ async function fetchCurrentPatient() {
 }
 
 export async function fetchBookingSelectData() {
-  const [doctors, services, patient] = await Promise.all([
-    prisma.doctorProfile.findMany({
-      where: { isActive: true },
-      include: {
-        profile: true,
-        expertiseLabels: { select: { modelCode: true, labelEn: true, labelVi: true } },
-        serviceAssignments: { where: { isActive: true }, include: { service: true } },
-      },
-      orderBy: { profile: { fullName: "asc" } },
-    }),
-    prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-    fetchCurrentPatient(),
-  ])
+  let doctors
+  let services
+  try {
+    ;[doctors, services] = await Promise.all([
+      prisma.doctorProfile.findMany({
+        where: { isActive: true },
+        include: {
+          profile: true,
+          expertiseLabels: { select: { modelCode: true, labelEn: true, labelVi: true } },
+          serviceAssignments: { where: { isActive: true }, include: { service: true } },
+        },
+        orderBy: { profile: { fullName: "asc" } },
+      }),
+      prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    ])
+  } catch (error) {
+    console.error("[booking-data] specialist relation query failed", error)
+    ;[doctors, services] = await Promise.all([
+      prisma.doctorProfile.findMany({
+        where: { isActive: true },
+        include: { profile: true },
+        orderBy: { profile: { fullName: "asc" } },
+      }),
+      prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    ])
+  }
+  const patient = await fetchCurrentPatient().catch((error) => {
+    console.error("[booking-data] patient lookup failed", error)
+    return null
+  })
 
   const linkedDoctors = doctors.filter(
     (d): d is typeof d & { profile: NonNullable<typeof d.profile> } => Boolean(d.profile),
