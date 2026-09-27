@@ -12,8 +12,8 @@ async function fetchCurrentPatient() {
 }
 
 export async function fetchBookingSelectData() {
-  let doctors
-  let services
+  let doctors: any[] = []
+  let services: any[] = []
   try {
     ;[doctors, services] = await Promise.all([
       prisma.doctorProfile.findMany({
